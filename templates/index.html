@@ -281,6 +281,14 @@
     flex: 0 0 auto; width: auto; padding: 11px 14px;
   }
   .btn-pause:hover { background: rgba(245,158,11,.2); }
+  .btn-stop {
+    background: rgba(255,95,95,.12);
+    border: 1px solid rgba(255,95,95,.35);
+    color: var(--accent-err);
+    flex: 0 0 auto; width: auto; padding: 11px 14px;
+  }
+  .btn-stop:hover { background: rgba(255,95,95,.2); }
+  .btn-stop:disabled { opacity: .5; cursor: not-allowed; }
   .btn-danger { background: rgba(255,95,95,.12); border: 1px solid rgba(255,95,95,.3); color: var(--accent-err); }
 
   .divider { height: 1px; background: var(--border); margin: 4px 0; }
@@ -366,6 +374,8 @@
   .log-toolbar .status-dot.paused  { background: var(--accent-pause); box-shadow: 0 0 6px var(--accent-pause); }
   .log-toolbar .status-dot.done    { background: var(--accent-ok); }
   .log-toolbar .status-dot.error   { background: var(--accent-err); }
+  .log-toolbar .status-dot.stopped { background: var(--accent-err); opacity: .65; }
+  .log-toolbar .status-dot.stopping{ background: var(--accent-err); box-shadow: 0 0 6px var(--accent-err); animation: pulse 0.8s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
   .log-toolbar .status-text { font-size: 12px; color: var(--text-muted); }
@@ -491,6 +501,9 @@
         <button class="btn btn-pause" id="d-pause-btn" style="display:none" onclick="togglePause('danbooru')">
           ⏸
         </button>
+        <button class="btn btn-stop" id="d-stop-btn" style="display:none" onclick="confirmStop('danbooru')" title="中止">
+          ⏹
+        </button>
       </div>
     </div>
 
@@ -510,6 +523,9 @@
         </button>
         <button class="btn btn-pause" id="y-pause-btn" style="display:none" onclick="togglePause('yande')">
           ⏸
+        </button>
+        <button class="btn btn-stop" id="y-stop-btn" style="display:none" onclick="confirmStop('yande')" title="中止">
+          ⏹
         </button>
       </div>
     </div>
@@ -576,8 +592,14 @@ python app.py</code></pre>
       <h2>界面布局</h2>
       <p>界面分为左右两栏：</p>
       <ul>
-        <li><strong>左侧</strong>：选择站点、填写参数、启动 / 暂停任务、查看下载记录</li>
+        <li><strong>左侧</strong>：选择站点、填写参数、启动 / 暂停 / 中止任务、查看下载记录</li>
         <li><strong>右侧</strong>：实时日志面板，两个站点的日志完全独立，切换选项卡不会中断任务</li>
+      </ul>
+      <p>按钮区有三个按钮：</p>
+      <ul>
+        <li><code>▶ 开始下载</code> — 启动任务</li>
+        <li><code>⏸</code> 暂停 / <code>▶</code> 继续 — 任务在当前图片下载完成后暂停，不截断文件</li>
+        <li><code>⏹</code> 中止 — 带二次确认，确认后任务立即退出，已下载的图片保留</li>
       </ul>
 
       <h2>Danbooru 使用</h2>
@@ -585,10 +607,11 @@ python app.py</code></pre>
       <p>匿名访问受限，建议配置后使用：</p>
       <ol>
         <li>登录 <code>danbooru.donmai.us</code> → 个人主页 → API Key 页面</li>
-        <li>生成 Key，填入 <code>danbooru_crawler.py</code> 顶部的两个变量</li>
+        <li>生成 Key，复制项目根目录下的 <code>.env.example</code> 为 <code>.env</code>，填入凭据</li>
       </ol>
-      <pre><code>DANBOORU_LOGIN = "你的用户名"
-DANBOORU_API_KEY = "你的API Key"</code></pre>
+      <pre><code>DANBOORU_LOGIN=你的用户名
+DANBOORU_API_KEY=你的API Key</code></pre>
+      <blockquote><code>.env</code> 文件已在 <code>.gitignore</code> 中排除，不会被上传到 GitHub。程序启动时会自动加载。</blockquote>
 
       <h3>搜索词格式</h3>
       <table>
@@ -617,8 +640,13 @@ DANBOORU_API_KEY = "你的API Key"</code></pre>
       <h3>文件保存结构</h3>
       <pre><code>downloads/{搜索词}/yande/{作者名}/{文件名}.jpg</code></pre>
 
-      <h2>暂停 / 继续</h2>
+      <h2>暂停 / 继续 / 中止</h2>
+      <h3>暂停</h3>
       <p>任务运行时，点击开始按钮旁的 <code>⏸</code> 暂停，状态指示灯变为橙色。任务会在当前图片下载完成后暂停，不会截断文件。点击 <code>▶</code> 继续。</p>
+      <h3>中止</h3>
+      <p>点击 <code>⏹</code> 中止按钮，会弹出确认框防误触。确认后任务在当前图片下载完成后退出，已下载的图片和记录全部保留，下次运行会自动跳过。状态指示灯先显示红色呼吸（正在中止），任务退出后变为红色常亮（已中止）。</p>
+      <h3>切换搜索词的推荐做法</h3>
+      <p>想换搜索词时，先点 <code>⏹</code> 中止当前任务，等状态变成「已中止」后修改搜索词再点开始，这样另一个站点正在跑的任务不会受影响。<strong>不要通过刷新页面来中止任务</strong>，刷新会让你看不到两个站点的状态，但后台任务仍在跑。</p>
 
       <h2>下载记录管理</h2>
       <p>每次下载成功后自动记录帖子 ID，下次运行自动跳过已下载内容。两个站点记录独立：</p>
@@ -631,10 +659,12 @@ DANBOORU_API_KEY = "你的API Key"</code></pre>
       <h2>常见问题</h2>
       <table>
         <tr><th>问题</th><th>解决方法</th></tr>
-        <tr><td>遇到 403 错误</td><td>配置 Danbooru API Key</td></tr>
+        <tr><td>遇到 403 错误</td><td>在根目录创建 <code>.env</code> 并配置 Danbooru API Key</td></tr>
         <tr><td>下载速度慢</td><td>正常，程序有请求间隔以避免被封</td></tr>
         <tr><td>部分图片跳过</td><td>已删除帖子原图已从服务器移除</td></tr>
         <tr><td>关闭页面任务停了吗</td><td>不会，关闭浏览器不影响后台任务</td></tr>
+        <tr><td>两站点能同时跑吗</td><td>可以，Danbooru 和 Yande.re 互不影响</td></tr>
+        <tr><td>同站点多任务并发</td><td>不建议，容易触发限流</td></tr>
       </table>
 
     </div>
@@ -653,6 +683,18 @@ DANBOORU_API_KEY = "你的API Key"</code></pre>
   </div>
 </div>
 
+<!-- 中止确认模态框 -->
+<div class="modal-overlay" id="modal-stop">
+  <div class="modal">
+    <h3>确认中止</h3>
+    <p id="modal-stop-msg"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeStopModal()">取消</button>
+      <button class="btn btn-danger" id="modal-stop-confirm">确认中止</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -660,7 +702,7 @@ DANBOORU_API_KEY = "你的API Key"</code></pre>
    每个站点独立的任务状态
    state = {
      taskId:   string|null,
-     status:   'idle'|'running'|'paused'|'done'|'error',
+     status:   'idle'|'running'|'paused'|'stopping'|'stopped'|'done'|'error',
      evtSrc:   EventSource|null,
      logCount: number,   // 已渲染的历史日志条数
    }
@@ -700,7 +742,7 @@ function syncStatusBar(site) {
   const s = states[site];
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
-  const labels = { idle:'空闲', running:'正在运行...', paused:'已暂停', done:'完成', error:'出错' };
+  const labels = { idle:'空闲', running:'正在运行...', paused:'已暂停', stopping:'正在中止...', stopped:'已中止', done:'完成', error:'出错' };
   dot.className = 'status-dot ' + (s.status === 'idle' ? '' : s.status);
   txt.textContent = labels[s.status] || s.status;
 }
@@ -766,10 +808,12 @@ function listenLogs(site, taskId, offset) {
     if (obj.done) {
       evtSrc.close();
       s.evtSrc = null;
-      const finalStatus = obj.status === 'error' ? 'error' : 'done';
+      let finalStatus = 'done';
+      if (obj.status === 'error')   finalStatus = 'error';
+      if (obj.status === 'stopped') finalStatus = 'stopped';
       updateSiteUI(site, finalStatus);
       const sysCls = site === 'danbooru' ? 'sys' : 'sys-y';
-      appendLog(site, '■ 任务结束', sysCls);
+      appendLog(site, finalStatus === 'stopped' ? '■ 任务已中止' : '■ 任务结束', sysCls);
       loadRecords();
       return;
     }
@@ -788,8 +832,8 @@ function listenLogs(site, taskId, offset) {
   evtSrc.onerror = () => {
     evtSrc.close();
     s.evtSrc = null;
-    // 若任务仍在运行，短暂延迟后重连（网络抖动）
-    if (s.status === 'running' || s.status === 'paused') {
+    // 若任务仍在活动（running/paused/stopping），短暂延迟后重连（网络抖动）
+    if (s.status === 'running' || s.status === 'paused' || s.status === 'stopping') {
       setTimeout(() => {
         if (s.taskId === taskId) listenLogs(site, taskId, s.logCount);
       }, 2000);
@@ -816,6 +860,33 @@ async function togglePause(site) {
   }
 }
 
+/* ── 中止 ── */
+function confirmStop(site) {
+  const s = states[site];
+  if (!s.taskId) return;
+  pendingStop = { site, taskId: s.taskId };
+  const name = site === 'danbooru' ? 'Danbooru' : 'Yande.re';
+  document.getElementById('modal-stop-msg').textContent =
+    `确定要中止当前 ${name} 任务吗？已下载的图片会保留，未完成的图片将停止下载。`;
+  document.getElementById('modal-stop').classList.add('open');
+}
+
+async function stopTask(site, taskId) {
+  const s = states[site];
+  // 先切到 stopping UI，给用户即时反馈（后端还在处理当前图片）
+  updateSiteUI(site, 'stopping');
+  try {
+    await fetch('/api/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: taskId }),
+    });
+  } catch (e) {
+    showToast('中止失败: ' + e);
+  }
+  // 真正的 stopped 状态由 SSE done 事件推送回来后再设置
+}
+
 /* ── UI 状态统一更新 ── */
 function updateSiteUI(site, status) {
   const s = states[site];
@@ -824,21 +895,28 @@ function updateSiteUI(site, status) {
   const prefix     = site === 'danbooru' ? 'd' : 'y';
   const startBtn   = document.getElementById(`${prefix}-start-btn`);
   const pauseBtn   = document.getElementById(`${prefix}-pause-btn`);
+  const stopBtn    = document.getElementById(`${prefix}-stop-btn`);
   const siteTab    = document.querySelector(`.site-tab[data-site="${site}"]`);
   const logTab     = document.querySelector(`.log-tab[data-log="${site}"]`);
 
   const isRunning  = status === 'running';
   const isPaused   = status === 'paused';
-  const isActive   = isRunning || isPaused;
+  const isStopping = status === 'stopping';
+  const isActive   = isRunning || isPaused || isStopping;
 
   // 开始按钮
   startBtn.disabled = isActive;
-  startBtn.textContent = isActive ? '⏳ 运行中...' : '▶ 开始下载';
+  startBtn.textContent = isActive ? (isStopping ? '⏳ 正在中止...' : '⏳ 运行中...') : '▶ 开始下载';
 
-  // 暂停按钮
-  pauseBtn.style.display = isActive ? '' : 'none';
+  // 暂停按钮：中止中隐藏（不能再暂停了）
+  pauseBtn.style.display = (isRunning || isPaused) ? '' : 'none';
   pauseBtn.textContent = isPaused ? '▶' : '⏸';
   pauseBtn.title = isPaused ? '继续' : '暂停';
+
+  // 中止按钮：运行或暂停时显示，中止中时禁用
+  stopBtn.style.display = isActive ? '' : 'none';
+  stopBtn.disabled = isStopping;
+  stopBtn.title = isStopping ? '正在中止...' : '中止';
 
   // 选项卡角标
   siteTab.classList.toggle('has-task', isActive);
@@ -951,6 +1029,24 @@ function closeModal() {
 }
 document.getElementById('modal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('modal')) closeModal();
+});
+
+/* ── 中止确认弹窗处理 ── */
+let pendingStop = null;
+
+document.getElementById('modal-stop-confirm').onclick = () => {
+  if (!pendingStop) return;
+  const { site, taskId } = pendingStop;
+  closeStopModal();
+  stopTask(site, taskId);
+};
+
+function closeStopModal() {
+  document.getElementById('modal-stop').classList.remove('open');
+  pendingStop = null;
+}
+document.getElementById('modal-stop').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('modal-stop')) closeStopModal();
 });
 
 /* ── Toast ── */

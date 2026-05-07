@@ -151,12 +151,13 @@ def fetch_posts_page(query: str, page: int, limit: int = 200) -> list[dict]:
 
 
 def fetch_all_posts(query: str, include_deleted: bool,
-                    log_fn=print, pause_event=None) -> list[dict]:
+                    log_fn=print, pause_event=None, stop_event=None) -> list[dict]:
     """
     分页获取所有搜索结果。
     若 include_deleted=True，额外搜索 'query status:deleted' 并合并去重。
     log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
     pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
+    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
     """
     # 构建查询列表：
     # - 正常查询显式排除已删除（-status:deleted），避免账号设置中"显示已删除帖子"
@@ -172,11 +173,19 @@ def fetch_all_posts(query: str, include_deleted: bool,
     deleted_count = 0            # 已删除帖子计数
 
     for q in queries:
+        if stop_event is not None and stop_event.is_set():
+            log_fn("收到中止信号，停止搜索")
+            return all_posts
+
         is_deleted_query = "status:deleted" in q and "-status:deleted" not in q
         label = "(已删除)" if is_deleted_query else "(正常)"
         page = 1
         log_fn(f"正在搜索 {label}: {q}")
         while True:
+            # 中止优先于暂停：中止时直接退出，不等暂停解除
+            if stop_event is not None and stop_event.is_set():
+                log_fn("收到中止信号，停止搜索")
+                return all_posts
             # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
             if pause_event is not None:
                 pause_event.wait()
@@ -301,12 +310,13 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
 
 def process_posts(posts: list[dict], query: str, output_dir: Path,
                   extra_handler: logging.Handler | None = None,
-                  pause_event=None) -> None:
+                  pause_event=None, stop_event=None) -> None:
     """
     处理帖子列表：跳过已下载、命名、下载图片并更新记录。
     按 is_deleted 分组处理，先下载正常图片再下载已删除图片，日志分类展示。
     extra_handler: 可选，前端实时日志 Handler。
     pause_event: threading.Event，被清除时在每张图片下载前阻塞（暂停）。
+    stop_event: threading.Event，被 set 时在每张图片下载前退出（中止）。
     """
     logger = setup_logger(output_dir, extra_handler)
 
@@ -328,6 +338,9 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
         "deleted": {"success": 0, "skip": 0, "fail": 0},
     }
 
+    def is_stopped() -> bool:
+        return stop_event is not None and stop_event.is_set()
+
     def process_group(group_posts: list[dict], group_label: str, stat_key: str):
         """处理一组帖子，group_label 用于日志前缀区分（正常/已删除）"""
         group_total = len(group_posts)
@@ -336,6 +349,10 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
         logger.info(f"── 开始下载 [{group_label}] 图片，共 {group_total} 张 ──")
 
         for i, post in enumerate(group_posts, 1):
+            if is_stopped():
+                logger.info(f"[{group_label}] 收到中止信号，停止下载")
+                return
+
             post_id = post.get("id")
             prefix = f"[{group_label} {i}/{group_total}]"
 
@@ -365,8 +382,17 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
             filepath = folder_path / filename
 
             logger.info(f"{prefix} 下载: {filename}")
+            # 中止优先于暂停：中止时直接退出当前组
+            if is_stopped():
+                logger.info(f"[{group_label}] 收到中止信号，停止下载")
+                return
             if pause_event is not None:
                 pause_event.wait()
+            # 暂停解除后可能已收到中止信号，再检查一次
+            if is_stopped():
+                logger.info(f"[{group_label}] 收到中止信号，停止下载")
+                return
+
             success = download_image(file_url, filepath, logger)
             if success:
                 folder_counters[folder_name] += 1
@@ -381,23 +407,27 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
 
     # 先下载正常图片，再下载已删除图片
     process_group(normal_posts,  "正常",   "normal")
-    process_group(deleted_posts, "已删除", "deleted")
+    if not is_stopped():
+        process_group(deleted_posts, "已删除", "deleted")
 
     # 分开汇报
     ns, ds = stats["normal"], stats["deleted"]
     logger.info("─" * 40)
+    if is_stopped():
+        logger.info("任务已被用户中止（以下为中止前已完成的统计）")
     logger.info(f"[正常]   成功 {ns['success']}，跳过 {ns['skip']}，失败 {ns['fail']}")
     logger.info(f"[已删除] 成功 {ds['success']}，跳过 {ds['skip']}，失败 {ds['fail']}")
-    logger.info(f"全部完成。合计成功 {ns['success'] + ds['success']} / {len(posts)}")
+    logger.info(f"合计成功 {ns['success'] + ds['success']} / {len(posts)}")
 
 
 def run(query: str, include_deleted: bool, output_dir: Path,
         extra_handler: logging.Handler | None = None,
-        pause_event=None) -> None:
+        pause_event=None, stop_event=None) -> None:
     """
     供外部（如 Flask app）直接调用的入口函数。
     extra_handler: 可选，用于将日志实时推送到前端。
     pause_event: threading.Event，传递给 fetch/process 实现暂停控制。
+    stop_event: threading.Event，传递给 fetch/process 实现中止控制。
     """
     posts = fetch_all_posts(query, include_deleted,
                             log_fn=lambda msg: (
@@ -405,11 +435,15 @@ def run(query: str, include_deleted: bool, output_dir: Path,
                                     logging.makeLogRecord({"msg": msg, "levelno": logging.INFO, "levelname": "INFO"})
                                 ) or print(msg)
                             ),
-                            pause_event=pause_event)
+                            pause_event=pause_event,
+                            stop_event=stop_event)
     if not posts:
         print("未找到任何图片")
         return
-    process_posts(posts, query, output_dir, extra_handler, pause_event=pause_event)
+    if stop_event is not None and stop_event.is_set():
+        return
+    process_posts(posts, query, output_dir, extra_handler,
+                  pause_event=pause_event, stop_event=stop_event)
 
 
 def main():

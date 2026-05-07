@@ -19,12 +19,13 @@ app = Flask(__name__, static_folder="logo", static_url_path="/logo")
 
 # 全局任务状态字典
 # 结构：{task_id: {
-#   "status": "running"|"paused"|"done"|"error",
+#   "status": "running"|"paused"|"done"|"error"|"stopped",
 #   "site":   "danbooru"|"yande",
 #   "query":  str,
 #   "queue":  Queue,       # 实时日志行
 #   "logs":   list[str],   # 全量历史日志（用于切换后回放）
 #   "pause_event": Event,  # set=运行, clear=暂停
+#   "stop_event":  Event,  # set=请求中止
 # }}
 _tasks: dict[str, dict] = {}
 _tasks_lock = threading.Lock()
@@ -73,20 +74,27 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
     handler.setFormatter(fmt)
 
     pause_event = _tasks[task_id]["pause_event"]
+    stop_event  = _tasks[task_id]["stop_event"]
 
     def log_fn(msg: str):
         _task_log(task_id, msg)
 
     try:
         posts = danbooru.fetch_all_posts(query, include_deleted,
-                                         log_fn=log_fn, pause_event=pause_event)
-        if not posts:
+                                         log_fn=log_fn,
+                                         pause_event=pause_event,
+                                         stop_event=stop_event)
+        if stop_event.is_set():
+            pass
+        elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
             danbooru.process_posts(posts, query, output_dir,
-                                   extra_handler=handler, pause_event=pause_event)
+                                   extra_handler=handler,
+                                   pause_event=pause_event,
+                                   stop_event=stop_event)
         with _tasks_lock:
-            _tasks[task_id]["status"] = "done"
+            _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
     except Exception as e:
         with _tasks_lock:
@@ -102,19 +110,27 @@ def _run_yande(task_id: str, query: str, output_dir: Path):
     handler.setFormatter(fmt)
 
     pause_event = _tasks[task_id]["pause_event"]
+    stop_event  = _tasks[task_id]["stop_event"]
 
     def log_fn(msg: str):
         _task_log(task_id, msg)
 
     try:
-        posts = yande.fetch_all_posts(query, log_fn=log_fn, pause_event=pause_event)
-        if not posts:
+        posts = yande.fetch_all_posts(query,
+                                      log_fn=log_fn,
+                                      pause_event=pause_event,
+                                      stop_event=stop_event)
+        if stop_event.is_set():
+            pass
+        elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
             yande.process_posts(posts, query, output_dir,
-                                extra_handler=handler, pause_event=pause_event)
+                                extra_handler=handler,
+                                pause_event=pause_event,
+                                stop_event=stop_event)
         with _tasks_lock:
-            _tasks[task_id]["status"] = "done"
+            _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
     except Exception as e:
         with _tasks_lock:
@@ -147,6 +163,7 @@ def api_start():
     task_id = uuid.uuid4().hex
     pause_event = threading.Event()
     pause_event.set()   # 默认运行状态
+    stop_event = threading.Event()  # 默认未中止
 
     with _tasks_lock:
         _tasks[task_id] = {
@@ -156,6 +173,7 @@ def api_start():
             "queue": queue.Queue(),
             "logs": [],
             "pause_event": pause_event,
+            "stop_event": stop_event,
         }
 
     if site == "danbooru":
@@ -263,6 +281,25 @@ def api_resume():
         task["status"] = "running"
         task["pause_event"].set()     # 重新 set → 爬虫从 wait() 处继续
         _task_log(task_id, "▶ 任务已继续")
+    return jsonify({"status": task["status"]})
+
+
+@app.route("/api/stop", methods=["POST"])
+def api_stop():
+    """
+    中止指定任务。set stop_event；
+    若任务处于暂停状态，同时 set pause_event 唤醒，避免卡在 wait() 无法退出。
+    """
+    data = request.get_json(force=True)
+    task_id = data.get("task_id", "")
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "任务不存在"}), 404
+    if task["status"] in ("running", "paused"):
+        task["stop_event"].set()
+        task["pause_event"].set()   # 确保暂停中的任务能立即看到 stop 信号
+        _task_log(task_id, "⏹ 任务正在中止...")
     return jsonify({"status": task["status"]})
 
 

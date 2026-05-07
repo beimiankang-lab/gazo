@@ -139,16 +139,21 @@ def fetch_posts_page(query: str, page: int, limit: int = 100) -> list[dict]:
     return resp.json()
 
 
-def fetch_all_posts(query: str, log_fn=print, pause_event=None) -> list[dict]:
+def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None) -> list[dict]:
     """
     分页获取所有搜索结果。
     log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
     pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
+    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
     """
     all_posts = []
     page = 1
     log_fn(f"正在搜索: {query}")
     while True:
+        # 中止优先于暂停：中止时直接退出，不等暂停解除
+        if stop_event is not None and stop_event.is_set():
+            log_fn("收到中止信号，停止搜索")
+            return all_posts
         # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
         if pause_event is not None:
             pause_event.wait()
@@ -323,11 +328,12 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
 
 def process_posts(posts: list[dict], query: str, output_dir: Path,
                   extra_handler: logging.Handler | None = None,
-                  pause_event=None) -> None:
+                  pause_event=None, stop_event=None) -> None:
     """
     处理帖子列表：跳过已下载、查询标签类型、命名、下载图片并更新记录。
     extra_handler: 可选，前端实时日志 Handler。
     pause_event: threading.Event，被清除时在每张图片下载前阻塞（暂停）。
+    stop_event: threading.Event，被 set 时在每张图片下载前退出（中止）。
     """
     logger = setup_logger(output_dir, extra_handler)
     logger.info(f"开始下载，搜索词: {query}，共 {len(posts)} 张")
@@ -349,6 +355,10 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
 
     total = len(posts)
     for i, post in enumerate(posts, 1):
+        if stop_event is not None and stop_event.is_set():
+            logger.info("收到中止信号，停止下载")
+            break
+
         post_id = post.get("id")
         file_url = post.get("file_url", "")
         file_ext = post.get("file_ext", "jpg")
@@ -377,9 +387,18 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
         filepath = folder_path / filename
 
         logger.info(f"[{i}/{total}] 下载: {filename}")
+        # 中止优先于暂停
+        if stop_event is not None and stop_event.is_set():
+            logger.info("收到中止信号，停止下载")
+            break
         # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
         if pause_event is not None:
             pause_event.wait()
+        # 暂停解除后可能已收到中止信号，再检查一次
+        if stop_event is not None and stop_event.is_set():
+            logger.info("收到中止信号，停止下载")
+            break
+
         success = download_image(file_url, filepath, logger)
         if success:
             folder_counters[folder_name] += 1
@@ -391,16 +410,20 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
         time.sleep(0.5)   # 每张图片下载间隔，避免请求过于频繁
 
     failed = total - len(downloaded)
-    logger.info(f"下载完成。成功: {len(downloaded)}，失败/跳过: {failed}")
+    if stop_event is not None and stop_event.is_set():
+        logger.info(f"任务已中止。成功: {len(downloaded)}，失败/跳过: {failed}")
+    else:
+        logger.info(f"下载完成。成功: {len(downloaded)}，失败/跳过: {failed}")
 
 
 def run(query: str, output_dir: Path,
         extra_handler: logging.Handler | None = None,
-        pause_event=None) -> None:
+        pause_event=None, stop_event=None) -> None:
     """
     供外部（如 Flask app）直接调用的入口函数。
     extra_handler: 可选，用于将日志实时推送到前端。
     pause_event: threading.Event，传递给 fetch/process 实现暂停控制。
+    stop_event: threading.Event，传递给 fetch/process 实现中止控制。
     """
     posts = fetch_all_posts(query,
                             log_fn=lambda msg: (
@@ -408,11 +431,15 @@ def run(query: str, output_dir: Path,
                                     logging.makeLogRecord({"msg": msg, "levelno": logging.INFO, "levelname": "INFO"})
                                 ) or print(msg)
                             ),
-                            pause_event=pause_event)
+                            pause_event=pause_event,
+                            stop_event=stop_event)
     if not posts:
         print("未找到任何图片")
         return
-    process_posts(posts, query, output_dir, extra_handler, pause_event=pause_event)
+    if stop_event is not None and stop_event.is_set():
+        return
+    process_posts(posts, query, output_dir, extra_handler,
+                  pause_event=pause_event, stop_event=stop_event)
 
 
 def main():
