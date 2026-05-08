@@ -10,12 +10,25 @@ import threading
 import uuid
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 
 import danbooru_crawler as danbooru
 import yande_crawler as yande
 
-app = Flask(__name__, static_folder="logo", static_url_path="/logo")
+_BASE_DIR = Path(__file__).parent
+_DIST_DIR = _BASE_DIR / "static_dist"
+
+if not (_DIST_DIR / "index.html").is_file():
+    raise RuntimeError(
+        "未找到前端构建产物 static_dist/index.html。\n"
+        "请先进入 frontend/ 运行 `npm install && npm run build`。"
+    )
+
+app = Flask(
+    __name__,
+    static_folder=str(_DIST_DIR),
+    static_url_path="",
+)
 
 # 全局任务状态字典
 # 结构：{task_id: {
@@ -143,7 +156,12 @@ def _run_yande(task_id: str, query: str, output_dir: Path):
 
 @app.route("/")
 def index():
-    return render_template("index.html", default_dir=DEFAULT_DOWNLOAD_DIR)
+    return send_from_directory(str(_DIST_DIR), "index.html")
+
+
+@app.route("/api/config")
+def api_config():
+    return jsonify({"default_dir": DEFAULT_DOWNLOAD_DIR})
 
 
 @app.route("/api/start", methods=["POST"])

@@ -14,6 +14,15 @@ ENV/
 # 下载目录（图片和记录文件）
 downloads/
 
+# 前端（Vue 3 + Vite）
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/auto-imports.d.ts
+frontend/components.d.ts
+frontend/*.tsbuildinfo
+static_dist/
+
 # 日志
 *.log
 

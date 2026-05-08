@@ -1,0 +1,81 @@
+:root {
+  --bg: #0d0f14;
+  --panel: #161b22;
+  --card: #1c2230;
+  --border: #2a3244;
+  --accent-d: #7c6aff;
+  --accent-y: #ff6b8a;
+  --accent-ok: #3ddc84;
+  --accent-err: #ff5f5f;
+  --accent-warn: #ffc107;
+  --accent-pause: #f59e0b;
+  --text: #e0e6f0;
+  --text-muted: #6b7a99;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+
+  color-scheme: dark;
+
+  /* Element Plus 主色覆盖：映射到项目强调色 */
+  --el-color-primary: #7c6aff;
+  --el-color-primary-light-3: #9486ff;
+  --el-color-primary-light-5: #ada2ff;
+  --el-color-primary-light-7: #c6beff;
+  --el-color-primary-light-8: #d3cdff;
+  --el-color-primary-light-9: #e8e5ff;
+  --el-color-primary-dark-2: #6352e8;
+
+  /* 深色背景基调 */
+  --el-bg-color: #161b22;
+  --el-bg-color-page: #0d0f14;
+  --el-bg-color-overlay: #1c2230;
+  --el-text-color-primary: #e0e6f0;
+  --el-text-color-regular: #c5cfe0;
+  --el-text-color-secondary: #8f9cb3;
+  --el-text-color-placeholder: #6b7a99;
+  --el-border-color: #2a3244;
+  --el-border-color-light: #2a3244;
+  --el-border-color-lighter: #2a3244;
+  --el-border-color-extra-light: #232a3a;
+  --el-fill-color: #1c2230;
+  --el-fill-color-light: #1c2230;
+  --el-fill-color-lighter: #1c2230;
+  --el-fill-color-blank: #161b22;
+  --el-mask-color: rgba(0, 0, 0, 0.65);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+}
+
+/* 全局滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo/logo.png" alt="Gazō" width="140">
+  <img src="frontend/public/logo/logo.png" alt="Gazō" width="140">
 </p>
 
 <h1 align="center">Gazō — Booru Image Crawler</h1>
@@ -26,6 +26,7 @@
 ## 环境要求
 
 - Python 3.10 及以上
+- Node.js 20+ 及 npm（用于构建前端；仅后端跑预构建产物时不需要）
 - 网络可正常访问 Danbooru / Yande.re（必要时需挂代理）
 
 ---
@@ -48,7 +49,18 @@ pip install -r requirements.txt
 
 ## 启动方式
 
+### 生产模式（一个端口跑完）
+
+前端代码在 `frontend/` 下用 Vue 3 + Vite 编写，第一次使用需要先构建一次静态产物：
+
 ```bash
+# 1. 构建前端（首次 clone 或改过前端代码时执行）
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 2. 启动后端，Flask 会托管 frontend 构建好的静态文件
 python app.py
 ```
 
@@ -57,6 +69,23 @@ python app.py
 ```
 http://127.0.0.1:5000
 ```
+
+> 如果还没构建过前端,`python app.py` 会直接报错提示去跑 `npm run build`。
+
+### 开发模式（前后端热更新）
+
+修改前端时推荐分端开发，Vite 会把 `/api` 代理到 Flask：
+
+```bash
+# 终端 A：启动 Flask（默认 5000）
+python app.py
+
+# 终端 B：启动 Vite 开发服务器（5173，带热更新）
+cd frontend
+npm run dev
+```
+
+浏览器打开 Vite 给出的地址（默认 `http://127.0.0.1:5173`），改 Vue 文件会自动刷新。
 
 ---
 
@@ -193,10 +222,18 @@ D:\crawler\
 ├── LICENSE                     # MIT 开源协议
 ├── .env.example                # 环境变量模板
 ├── .gitignore                  # Git 忽略规则
-├── logo/
-│   └── logo.png                # 项目 Logo
-├── templates/
-│   └── index.html              # 前端页面
+├── frontend/                   # Vue 3 + Vite 前端源码
+│   ├── public/
+│   │   └── logo/               # 项目 Logo（构建后落到 /logo/）
+│   ├── src/
+│   │   ├── components/         # 头部、表单、日志、记录、帮助
+│   │   ├── api.ts              # 封装 /api 调用
+│   │   ├── useTasks.ts         # 任务状态 + SSE
+│   │   └── App.vue
+│   ├── index.html
+│   ├── vite.config.ts          # 开发代理 /api → 5000
+│   └── package.json
+├── static_dist/                # 前端构建产物（npm run build 生成，已 gitignore）
 ├── downloads/                  # 图片下载目录（已 gitignore）
 │   ├── .downloaded_danbooru.json
 │   └── .downloaded_yande.json
