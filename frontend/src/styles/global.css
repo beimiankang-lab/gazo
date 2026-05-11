@@ -60,6 +60,7 @@ html,
 body,
 #app {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -67,7 +68,6 @@ body {
   color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 14px;
-  min-height: 100vh;
 }
 
 /* 全局滚动条 */
