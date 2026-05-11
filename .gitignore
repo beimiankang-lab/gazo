@@ -23,6 +23,10 @@ frontend/components.d.ts
 frontend/*.tsbuildinfo
 static_dist/
 
+# PyInstaller 打包产物
+build/
+dist/
+
 # 日志
 *.log
 
@@ -40,3 +44,4 @@ desktop.ini
 # 配置（如有敏感信息另存）
 .env
 config.local.py
+gazo_config.json

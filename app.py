@@ -16,8 +16,22 @@ import danbooru_crawler as danbooru
 import yande_crawler as yande
 from naming import parse_filters
 
-_BASE_DIR = Path(__file__).parent
-_DIST_DIR = _BASE_DIR / "static_dist"
+import sys as _sys
+
+def _get_base_dir() -> Path:
+    """用户数据目录：exe 旁边（开发时为 app.py 旁边）"""
+    if getattr(_sys, 'frozen', False):
+        return Path(_sys.executable).parent
+    return Path(__file__).parent
+
+def _get_dist_dir() -> Path:
+    """前端静态文件目录：打包时在 _MEIPASS，开发时在 app.py 旁边"""
+    if getattr(_sys, 'frozen', False):
+        return Path(_sys._MEIPASS) / "static_dist"  # type: ignore[attr-defined]
+    return Path(__file__).parent / "static_dist"
+
+_BASE_DIR = _get_base_dir()
+_DIST_DIR = _get_dist_dir()
 _CONFIG_PATH = _BASE_DIR / "gazo_config.json"
 
 
@@ -58,7 +72,7 @@ app = Flask(
 _tasks: dict[str, dict] = {}
 _tasks_lock = threading.Lock()
 
-DEFAULT_DOWNLOAD_DIR = str(Path(__file__).parent / "downloads")
+DEFAULT_DOWNLOAD_DIR = str(_BASE_DIR / "downloads")
 
 
 # ── 日志队列 Handler ──────────────────────────────────────────────────────────
@@ -421,5 +435,23 @@ def api_reset():
 
 
 if __name__ == "__main__":
-    print("启动 Web 界面: http://127.0.0.1:5000")
-    app.run(debug=True, threaded=True)
+    import sys
+    import webbrowser
+    import threading as _t
+
+    port = 5000
+    url = f"http://127.0.0.1:{port}"
+    print(f"启动 Web 界面: {url}")
+
+    # 打包成 exe 时 debug=True 会导致重启循环，必须关掉
+    is_frozen = getattr(sys, 'frozen', False)
+
+    def _open_browser():
+        import time
+        time.sleep(1.2)
+        webbrowser.open(url)
+
+    if is_frozen:
+        _t.Thread(target=_open_browser, daemon=True).start()
+
+    app.run(debug=not is_frozen, threaded=True, port=port)
