@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+
 const logoUrl = '/logo/logo.png';
-defineEmits<{ 'open-help': [] }>();
+const { t } = useI18n();
+
+defineEmits<{ 'open-help': []; 'open-settings': [] }>();
 </script>
 
 <template>
@@ -10,11 +14,12 @@ defineEmits<{ 'open-help': [] }>();
     </div>
     <h1>
       Gazō
-      <span class="subtitle">画像を集める</span>
+      <span class="subtitle">{{ t('header.subtitle') }}</span>
     </h1>
     <div class="flex-spacer" />
-    <button class="help-btn" @click="$emit('open-help')">? 使用教程</button>
-    <span class="badge">Danbooru &amp; Yande.re</span>
+    <button class="help-btn" @click="$emit('open-help')">{{ t('header.help') }}</button>
+    <button class="icon-btn gear" :title="t('header.settings')" @click="$emit('open-settings')">⚙</button>
+    <span class="badge">{{ t('header.badge') }}</span>
   </header>
 </template>
 
@@ -78,6 +83,28 @@ h1 {
 .help-btn:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+.icon-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    transform 0.3s;
+}
+.icon-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  transform: rotate(60deg);
 }
 .badge {
   font-size: 11px;

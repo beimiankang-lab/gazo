@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { Site } from '@/types';
 import { useTasks } from '@/useTasks';
+import { buildRatingFragment } from '@/useSettings';
 import SiteForm from './SiteForm.vue';
 import RecordsList from './RecordsList.vue';
 
@@ -13,10 +15,24 @@ const props = defineProps<{
 
 const emit = defineEmits<{ 'switch-site': [Site] }>();
 
+const { t } = useI18n();
 const { state, start, togglePause, requestStop } = useTasks();
 
 const dDir = ref(props.defaultDir);
 const yDir = ref(props.defaultDir);
+
+const dFormRef = ref<InstanceType<typeof SiteForm> | null>(null);
+const yFormRef = ref<InstanceType<typeof SiteForm> | null>(null);
+
+defineExpose({
+  triggerStart() {
+    if (props.currentSite === 'danbooru') dFormRef.value?.triggerStart();
+    else yFormRef.value?.triggerStart();
+  },
+  async triggerStop() {
+    await handleStop(props.currentSite);
+  },
+});
 
 watch(
   () => props.defaultDir,
@@ -36,31 +52,34 @@ function isActive(site: Site) {
   return s === 'running' || s === 'paused' || s === 'stopping';
 }
 
+function composeQuery(site: Site, userQuery: string): string {
+  const rating = buildRatingFragment(site);
+  if (!rating) return userQuery;
+  return `${userQuery} ${rating}`.trim();
+}
+
 async function handleStart(site: Site, payload: { query: string; outputDir: string; includeDeleted: boolean }) {
   if (!payload.query) {
-    ElMessage.warning('请填写搜索词');
+    ElMessage.warning(t('form.emptyTags'));
     return;
   }
+  const finalQuery = composeQuery(site, payload.query);
   try {
-    await start(site, payload.query, payload.outputDir, payload.includeDeleted);
+    await start(site, finalQuery, payload.outputDir, payload.includeDeleted);
     recordsRef.value?.refresh();
   } catch (e) {
-    ElMessage.error(`启动失败: ${(e as Error).message}`);
+    ElMessage.error(t('form.startFailed', { msg: (e as Error).message }));
   }
 }
 
 async function handleStop(site: Site) {
   const name = site === 'danbooru' ? 'Danbooru' : 'Yande.re';
   try {
-    await ElMessageBox.confirm(
-      `确定要中止当前 ${name} 任务吗？已下载的图片会保留，未完成的图片将停止下载。`,
-      '中止任务',
-      {
-        confirmButtonText: '中止',
-        cancelButtonText: '取消',
-        type: 'warning',
-      },
-    );
+    await ElMessageBox.confirm(t('stop.confirm', { site: name }), t('stop.title'), {
+      confirmButtonText: t('stop.button'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    });
   } catch {
     return;
   }
@@ -97,13 +116,14 @@ watch(
         @click="emit('switch-site', site)"
       >
         <span class="dot" />
-        <span>{{ site === 'danbooru' ? 'Danbooru' : 'Yande.re' }}</span>
+        <span>{{ t(`site.${site}`) }}</span>
         <span class="running-badge" />
       </button>
     </div>
 
     <SiteForm
       v-show="activeForm === 'danbooru'"
+      ref="dFormRef"
       site="danbooru"
       v-model:output-dir="dDir"
       :state="state.danbooru"
@@ -113,6 +133,7 @@ watch(
     />
     <SiteForm
       v-show="activeForm === 'yande'"
+      ref="yFormRef"
       site="yande"
       v-model:output-dir="yDir"
       :state="state.yande"

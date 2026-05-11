@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { Site, TaskStatus } from '@/types';
 
 interface SiteStateShape {
@@ -20,8 +21,12 @@ const emit = defineEmits<{
   stop: [];
 }>();
 
+const { t } = useI18n();
+
 const query = ref('');
 const includeDeleted = ref(false);
+
+defineExpose({ triggerStart: () => onStart() });
 
 const dir = computed({
   get: () => props.outputDir,
@@ -34,9 +39,9 @@ const isStopping = computed(() => props.state.status === 'stopping');
 const isActive = computed(() => isRunning.value || isPaused.value || isStopping.value);
 
 const startLabel = computed(() => {
-  if (isStopping.value) return '⏳ 正在中止...';
-  if (isActive.value) return '⏳ 运行中...';
-  return '▶ 开始下载';
+  if (isStopping.value) return t('form.stoppingEllipsis');
+  if (isActive.value) return t('form.runningEllipsis');
+  return t('form.startDownload');
 });
 
 function onStart() {
@@ -48,7 +53,7 @@ function onStart() {
 }
 
 const placeholder = computed(() =>
-  props.site === 'danbooru' ? '例: shingeki_no_kyojin' : '例: hatsune_miku',
+  props.site === 'danbooru' ? t('form.tagsPlaceholderD') : t('form.tagsPlaceholderY'),
 );
 
 const primaryClass = computed(() =>
@@ -59,15 +64,15 @@ const primaryClass = computed(() =>
 <template>
   <div class="form-body">
     <div class="field">
-      <label>搜索词</label>
-      <el-input v-model="query" :placeholder="placeholder" clearable />
+      <label>{{ t('form.tags') }}</label>
+      <el-input v-model="query" :placeholder="placeholder" clearable @keyup.ctrl.enter="onStart" />
     </div>
     <div class="field">
-      <label>保存目录</label>
-      <el-input v-model="dir" placeholder="D:\\crawler\\images" />
+      <label>{{ t('form.outputDir') }}</label>
+      <el-input v-model="dir" :placeholder="t('form.outputDirPlaceholder')" />
     </div>
     <div v-if="site === 'danbooru'" class="toggle-row">
-      <span class="toggle-label">同时下载已删除图片</span>
+      <span class="toggle-label">{{ t('form.includeDeleted') }}</span>
       <el-switch v-model="includeDeleted" />
     </div>
     <div class="btn-row">
@@ -77,7 +82,7 @@ const primaryClass = computed(() =>
       <button
         v-if="isRunning || isPaused"
         class="btn btn-pause"
-        :title="isPaused ? '继续' : '暂停'"
+        :title="isPaused ? t('common.resume') : t('common.pause')"
         @click="emit('toggle-pause')"
       >
         {{ isPaused ? '▶' : '⏸' }}
@@ -86,7 +91,7 @@ const primaryClass = computed(() =>
         v-if="isActive"
         class="btn btn-stop"
         :disabled="isStopping"
-        :title="isStopping ? '正在中止...' : '中止'"
+        :title="isStopping ? t('form.stoppingEllipsis') : t('common.stop')"
         @click="emit('stop')"
       >
         ⏹

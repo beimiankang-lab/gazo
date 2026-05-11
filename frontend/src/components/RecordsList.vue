@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { RecordsResponse, Site } from '@/types';
 import { fetchRecords, resetRecord } from '@/api';
 
 const props = defineProps<{ outputDir: string }>();
+
+const { t } = useI18n();
 
 const records = ref<RecordsResponse>({ danbooru: {}, yande: {} });
 const items = ref<{ site: Site; query: string; count: number }[]>([]);
@@ -33,11 +36,11 @@ function flatten() {
 async function onReset(site: Site, query: string) {
   try {
     await ElMessageBox.confirm(
-      `确定要清除 ${site === 'danbooru' ? 'Danbooru' : 'Yande.re'} 中「${query}」的下载记录吗？清除后下次将重新下载所有图片。`,
-      '重置记录',
+      t('records.resetConfirmMsg', { site: site === 'danbooru' ? 'Danbooru' : 'Yande.re', query }),
+      t('records.resetConfirmTitle'),
       {
-        confirmButtonText: '重置',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.reset'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       },
     );
@@ -46,10 +49,10 @@ async function onReset(site: Site, query: string) {
   }
   try {
     await resetRecord(site, query, props.outputDir);
-    ElMessage.success(`已重置「${query}」的下载记录`);
+    ElMessage.success(t('records.resetSuccess', { query }));
     refresh();
   } catch (e) {
-    ElMessage.error(`重置失败: ${(e as Error).message}`);
+    ElMessage.error(t('records.resetFailed', { msg: (e as Error).message }));
   }
 }
 
@@ -66,16 +69,20 @@ defineExpose({ refresh });
 <template>
   <section class="records">
     <div class="records-header">
-      <span class="title">已下载记录</span>
-      <button class="refresh" title="刷新" @click="refresh">↻</button>
+      <span class="title">{{ t('records.title') }}</span>
+      <button class="refresh" :title="t('common.refresh')" @click="refresh">↻</button>
     </div>
     <div class="records-list">
-      <div v-if="items.length === 0" class="empty">暂无下载记录</div>
+      <div v-if="items.length === 0" class="empty">{{ t('records.empty') }}</div>
       <div v-for="item in items" v-else :key="`${item.site}-${item.query}`" class="record-item">
         <span class="pill" :class="item.site">{{ item.site === 'danbooru' ? 'D' : 'Y' }}</span>
         <span class="qname" :title="item.query">{{ item.query }}</span>
-        <span class="cnt">{{ item.count }} 张</span>
-        <button class="del-btn" title="重置记录" @click="onReset(item.site, item.query)">✕</button>
+        <span class="cnt">{{ t('records.items', { n: item.count }) }}</span>
+        <button
+          class="del-btn"
+          :title="t('records.resetTooltip')"
+          @click="onReset(item.site, item.query)"
+        >✕</button>
       </div>
     </div>
   </section>

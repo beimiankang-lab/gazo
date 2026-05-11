@@ -4,247 +4,259 @@
 
 <h1 align="center">Gazō — Booru Image Crawler</h1>
 
-<p align="center"><em>画像を集める — 来自 <a href="https://danbooru.donmai.us">Danbooru</a> 和 <a href="https://yande.re">Yande.re</a> 的图片批量采集工具，提供可视化 Web 界面，支持实时日志、暂停继续、中止任务、下载记录管理。</em></p>
+<p align="center">
+  <strong>English</strong> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="README.zh-TW.md">繁體中文</a> ·
+  <a href="README.ja.md">日本語</a>
+</p>
+
+<p align="center"><em>画像を集める — a batch image downloader for <a href="https://danbooru.donmai.us">Danbooru</a> and <a href="https://yande.re">Yande.re</a>. Ships with a Web UI that streams live logs and supports pause / resume / stop and download-history management.</em></p>
 
 ---
 
-## 目录
+## Table of Contents
 
-- [环境要求](#环境要求)
-- [安装步骤](#安装步骤)
-- [启动方式](#启动方式)
-- [界面说明](#界面说明)
-- [Danbooru 使用说明](#danbooru-使用说明)
-- [Yande.re 使用说明](#yandere-使用说明)
-- [下载记录管理](#下载记录管理)
-- [文件结构](#文件结构)
-- [命令行直接使用](#命令行直接使用)
-- [常见问题](#常见问题)
-
----
-
-## 环境要求
-
-- Python 3.10 及以上
-- Node.js 20+ 及 npm（用于构建前端；仅后端跑预构建产物时不需要）
-- 网络可正常访问 Danbooru / Yande.re（必要时需挂代理）
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Running](#running)
+- [UI Overview](#ui-overview)
+- [Danbooru Guide](#danbooru-guide)
+- [Yande.re Guide](#yandere-guide)
+- [Download History](#download-history)
+- [Project Layout](#project-layout)
+- [CLI Usage](#cli-usage)
+- [FAQ](#faq)
 
 ---
 
-## 安装步骤
+## Requirements
+
+- Python 3.10 or newer
+- Node.js 20+ and npm (for building the frontend; not required if you only run a pre-built artifact)
+- Network access to Danbooru / Yande.re (a proxy may be needed in some regions)
+
+---
+
+## Installation
 
 ```bash
-# 1. 进入项目目录
+# 1. Enter the project directory
 cd D:\crawler
 
-# 2. 创建虚拟环境（可选，推荐）
+# 2. Create a virtual environment (optional but recommended)
 python -m venv venv
 venv\Scripts\activate
 
-# 3. 安装依赖
+# 3. Install dependencies
 pip install -r requirements.txt
 ```
 
 ---
 
-## 启动方式
+## Running
 
-### 生产模式（一个端口跑完）
+### Production mode (single port)
 
-前端代码在 `frontend/` 下用 Vue 3 + Vite 编写，第一次使用需要先构建一次静态产物：
+The frontend lives under `frontend/` and is built with Vue 3 + Vite. Build the static assets once before the first run:
 
 ```bash
-# 1. 构建前端（首次 clone 或改过前端代码时执行）
+# 1. Build the frontend (first clone, or whenever you change frontend code)
 cd frontend
 npm install
 npm run build
 cd ..
 
-# 2. 启动后端，Flask 会托管 frontend 构建好的静态文件
+# 2. Start the backend — Flask serves the built assets
 python app.py
 ```
 
-启动后在浏览器打开：
+Then open:
 
 ```
 http://127.0.0.1:5000
 ```
 
-> 如果还没构建过前端,`python app.py` 会直接报错提示去跑 `npm run build`。
+> If the frontend has never been built, `python app.py` exits with an error asking you to run `npm run build`.
 
-### 开发模式（前后端热更新）
+### Development mode (hot reload)
 
-修改前端时推荐分端开发，Vite 会把 `/api` 代理到 Flask：
+When working on the frontend, run the two servers separately. Vite proxies `/api` to Flask:
 
 ```bash
-# 终端 A：启动 Flask（默认 5000）
+# Terminal A — Flask (default port 5000)
 python app.py
 
-# 终端 B：启动 Vite 开发服务器（5173，带热更新）
+# Terminal B — Vite dev server (port 5173, hot reload)
 cd frontend
 npm run dev
 ```
 
-浏览器打开 Vite 给出的地址（默认 `http://127.0.0.1:5173`），改 Vue 文件会自动刷新。
+Open the URL printed by Vite (defaults to `http://127.0.0.1:5173`). Changes to Vue files refresh automatically.
 
 ---
 
-## 界面说明
+## UI Overview
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  Gazō 画像を集める      [?使用教程] Danbooru & Yande│
+│  Gazō 画像を集める       [?Help]  Danbooru & Yande  │
 ├──────────────────┬──────────────────────────────────┤
-│  Danbooru│Yande  │  Danbooru 日志 │ Yande.re 日志   │
+│  Danbooru│Yande  │  Danbooru log │ Yande.re log     │
 │──────────────────│─────────────────────────────────-│
-│  搜索词          │  [状态灯] 空闲/运行/暂停/中止    │
-│  保存目录        │                                   │
-│  [含已删除] 开关 │  2026-05-07 [INFO] 正在搜索...   │
-│  [▶开始][⏸][⏹] │  2026-05-07 [INFO] 下载: xxx.jpg │
+│  Search tags     │  [status] idle/run/pause/stop    │
+│  Save directory  │                                   │
+│  [Include gone?] │  2026-05-07 [INFO] searching...  │
+│  [▶Start][⏸][⏹] │  2026-05-07 [INFO] get: xxx.jpg  │
 │──────────────────│                                   │
-│  下载记录        │                                   │
+│  Download history│                                   │
 │  D hatsune_miku  │                                   │
 │  Y shingeki ...  │                                   │
 └──────────────────┴──────────────────────────────────┘
 ```
 
-| 区域 | 说明 |
-|------|------|
-| 左侧选项卡 | 切换 Danbooru / Yande.re 配置表单 |
-| 右侧日志选项卡 | 独立查看每个站点的日志，切换不会中断任务 |
-| 按钮区 | ▶ 开始、⏸ 暂停 / 继续、⏹ 中止（带二次确认）|
-| 状态指示灯 | 绿色呼吸=运行中，橙色=已暂停，红色呼吸=正在中止，红色=已中止/出错，绿色常亮=完成 |
-| 角标小圆点 | 选项卡右上角小点，任务运行时出现，方便切换后感知状态 |
-| 使用教程按钮 | 顶部右上角「? 使用教程」，点击弹出完整教程，内容与本文档一致 |
+| Area | Description |
+|------|-------------|
+| Left tabs | Switch between Danbooru / Yande.re config forms |
+| Right log tabs | View each site's log independently — switching never interrupts a running task |
+| Control buttons | ▶ Start, ⏸ Pause / Resume, ⏹ Stop (with confirmation) |
+| Status dot | Green pulse = running, orange = paused, red pulse = stopping, red = stopped/error, solid green = done |
+| Tab corner dot | Small dot on the top-right of a tab while its task is active — handy for tracking state across tabs |
+| Help button | The "? Help" button in the top-right opens a full in-app guide that matches this document |
 
 ---
 
-## Danbooru 使用说明
+## Danbooru Guide
 
-### 1. 配置 API 认证
+### 1. Configure the API credentials
 
-Danbooru 匿名访问受限（只能搜索安全级别内容，每页限 20 条）。建议配置 API Key：
+Anonymous Danbooru access is limited (safe-rated content only, 20 posts per page). Configure an API key:
 
-1. 注册并登录 [danbooru.donmai.us](https://danbooru.donmai.us)
-2. 进入个人主页 → **API Key** 页面，生成 Key
-3. 复制项目根目录下的 `.env.example` 为 `.env`，填入凭据：
+1. Register and log in at [danbooru.donmai.us](https://danbooru.donmai.us)
+2. Open your profile → **API Key** page and generate a key
+   - **Permissions**: picking `All` is the easy path. For least-privilege, pick `Scoped` and tick only `posts:index` — this project only hits `/posts.json`.
+   - Downloading "deleted" posts depends on your **account level** (Gold+ is typically required). This is unrelated to API-key scopes.
+3. Copy `.env.example` at the project root to `.env` and fill in your credentials:
 
 ```bash
-DANBOORU_LOGIN=你的用户名
-DANBOORU_API_KEY=你的API Key
+DANBOORU_LOGIN=your-username
+DANBOORU_API_KEY=your-api-key
 ```
 
-> `.env` 文件已在 `.gitignore` 中排除，不会被上传到 GitHub。程序启动时会自动加载。
+> `.env` is already in `.gitignore` and will not be pushed to GitHub. It is loaded automatically on startup.
 
-### 2. 搜索词格式
+### 2. Search syntax
 
-Danbooru 使用标签组合搜索，多个标签用空格分隔：
+Danbooru searches by tag combinations separated by spaces:
 
-| 示例搜索词 | 说明 |
-|-----------|------|
-| `hatsune_miku` | 搜索初音未来相关图片 |
-| `shingeki_no_kyojin` | 搜索进击的巨人相关图片 |
-| `hatsune_miku solo` | 多标签组合 |
+| Example | Description |
+|---------|-------------|
+| `hatsune_miku` | Search for Hatsune Miku |
+| `shingeki_no_kyojin` | Search for Attack on Titan |
+| `hatsune_miku solo` | Combine multiple tags |
 
-> 标签名称可在 Danbooru 网站搜索框中确认，单词间用下划线连接。
+> Tag names can be verified in the Danbooru search box. Words inside a tag are joined with underscores.
 
-### 3. 含已删除图片
+### 3. Include deleted posts
 
-开启后会额外搜索 `status:deleted` 的帖子并一并下载。已删除帖子可能无法获取原图链接，会自动跳过。
+Enabling this switch performs an extra search for `status:deleted` posts and downloads them as well. Deleted posts may have no accessible original URL — those are skipped automatically.
 
-### 4. 文件保存结构
+### 4. File layout
 
 ```
 downloads/
-└── {搜索词}/
+└── {tag}/
     └── danbooru/
-        └── {作者名}/
+        └── {artist}/
             ├── shingeki_no_kyojin(artist_a)_eren_yeager01.jpg
             └── shingeki_no_kyojin(artist_b)_unknown02.png
 ```
 
 ---
 
-## Yande.re 使用说明
+## Yande.re Guide
 
-### 1. 搜索词格式
+### 1. Search syntax
 
-Yande.re 同样使用标签搜索：
+Yande.re also uses tag-based search:
 
-| 示例搜索词 | 说明 |
-|-----------|------|
-| `hatsune_miku` | 搜索初音未来 |
-| `hatsune_miku rating:s` | 只搜索安全级别 |
+| Example | Description |
+|---------|-------------|
+| `hatsune_miku` | Search for Hatsune Miku |
+| `hatsune_miku rating:s` | Only safe-rated posts |
 
-### 2. 标签类型查询
+### 2. Tag-type lookup
 
-首次下载某个搜索词时，程序会批量查询所有标签的类型（作者 / 角色 / 版权等），用于自动归类文件名和目录，此步骤会稍慢，属正常现象。
+The first time you download a given query, the tool batches a lookup for every tag's type (artist / character / copyright / ...) so it can auto-group files and directories. The first run is therefore slower; subsequent runs reuse the cache.
 
-### 3. 文件保存结构
+### 3. File layout
 
 ```
 downloads/
-└── {搜索词}/
+└── {tag}/
     └── yande/
-        └── {作者名}/
+        └── {artist}/
             ├── hatsune_miku(artist_a)_hatsune_miku01.jpg
             └── hatsune_miku(unknown)02.jpg
 ```
 
 ---
 
-## 下载记录管理
+## Download History
 
-程序会在 `downloads/` 目录下保存两个记录文件：
+Two JSON files live under `downloads/`:
 
-| 文件 | 说明 |
-|------|------|
-| `.downloaded_danbooru.json` | Danbooru 已下载帖子 ID |
-| `.downloaded_yande.json` | Yande.re 已下载帖子 ID |
+| File | Description |
+|------|-------------|
+| `.downloaded_danbooru.json` | IDs of posts already downloaded from Danbooru |
+| `.downloaded_yande.json` | IDs of posts already downloaded from Yande.re |
 
-两个站点的记录完全独立，重置一个不影响另一个。
+The two sites' histories are fully independent — resetting one does not affect the other.
 
-### 重置记录
+### Resetting a history entry
 
-在界面左侧下载记录区域，点击每条记录右侧的 **✕** 按钮，确认后即可清除该搜索词的下载记录。下次运行时会重新下载所有图片。
+In the left-side **Download History** panel, click the **✕** button next to any entry. After the confirmation, that query's history is cleared and the next run will re-download everything.
 
 ---
 
-## 文件结构
+## Project Layout
 
 ```
 D:\crawler\
-├── app.py                      # Flask 后端，提供 Web API
-├── danbooru_crawler.py         # Danbooru 爬虫核心
-├── yande_crawler.py            # Yande.re 爬虫核心
-├── requirements.txt            # Python 依赖
-├── README.md                   # 本文件
-├── LICENSE                     # MIT 开源协议
-├── .env.example                # 环境变量模板
-├── .gitignore                  # Git 忽略规则
-├── frontend/                   # Vue 3 + Vite 前端源码
+├── app.py                      # Flask backend, serves the Web API
+├── danbooru_crawler.py         # Danbooru crawler core
+├── yande_crawler.py            # Yande.re crawler core
+├── requirements.txt            # Python dependencies
+├── README.md                   # This file (English)
+├── README.zh-CN.md             # 简体中文
+├── README.zh-TW.md             # 繁體中文
+├── README.ja.md                # 日本語
+├── LICENSE                     # MIT License
+├── .env.example                # Env-var template
+├── .gitignore                  # Git ignore rules
+├── frontend/                   # Vue 3 + Vite frontend
 │   ├── public/
-│   │   └── logo/               # 项目 Logo（构建后落到 /logo/）
+│   │   └── logo/               # Project logo (served as /logo/ after build)
 │   ├── src/
-│   │   ├── components/         # 头部、表单、日志、记录、帮助
-│   │   ├── api.ts              # 封装 /api 调用
-│   │   ├── useTasks.ts         # 任务状态 + SSE
+│   │   ├── components/         # Header, form, log panel, history, help modal
+│   │   ├── api.ts              # HTTP calls to /api
+│   │   ├── useTasks.ts         # Task state + SSE stream
 │   │   └── App.vue
 │   ├── index.html
-│   ├── vite.config.ts          # 开发代理 /api → 5000
+│   ├── vite.config.ts          # Dev proxy /api → 5000
 │   └── package.json
-├── static_dist/                # 前端构建产物（npm run build 生成，已 gitignore）
-├── downloads/                  # 图片下载目录（已 gitignore）
+├── static_dist/                # Build output (generated by npm run build; gitignored)
+├── downloads/                  # Image output directory (gitignored)
 │   ├── .downloaded_danbooru.json
 │   └── .downloaded_yande.json
-└── venv/                       # Python 虚拟环境（已 gitignore）
+└── venv/                       # Python virtualenv (gitignored)
 ```
 
 ---
 
-## 命令行直接使用
+## CLI Usage
 
-不启动 Web 界面，也可以直接在终端运行爬虫：
+You can also run the crawlers without the Web UI:
 
 ```bash
 # Danbooru
@@ -254,46 +266,46 @@ python danbooru_crawler.py
 python yande_crawler.py
 ```
 
-按提示选择操作：
-- `1` 开始下载
-- `2` 重置指定搜索词记录
-- `3` 查看所有下载记录
+Follow the prompts:
+- `1` — Start downloading
+- `2` — Reset the history for a given query
+- `3` — List all download history
 
 ---
 
-## 常见问题
+## FAQ
 
-**Q: 运行时遇到 403 错误？**
-A: Danbooru 匿名访问受限，请在项目根目录创建 `.env` 文件并填写 API 认证信息（参考 `.env.example`）。
+**Q: I get a 403 at runtime.**
+A: Anonymous Danbooru access is limited. Create `.env` in the project root and fill in credentials (see `.env.example`).
 
-**Q: 图片下载很慢？**
-A: 程序每张图片之间有 0.5~1 秒间隔，这是为了避免触发站点的请求频率限制，属正常现象。
+**Q: Downloads feel slow.**
+A: There is a 0.5–1 s delay between images to stay under the sites' rate limits. This is intentional.
 
-**Q: 部分图片没有下载链接？**
-A: 已删除帖子的原图可能已从服务器移除，程序会自动跳过并在日志中提示。
+**Q: Some images have no download link.**
+A: Deleted posts may have had their original removed from the server. The tool skips them and logs a message.
 
-**Q: 切换选项卡后任务还在跑吗？**
-A: 是的。切换选项卡只是切换界面显示，后台任务不受影响。右侧日志面板可随时切换查看两个站点各自的实时日志。
+**Q: If I switch tabs, does the task keep running?**
+A: Yes. Tabs are purely a view switch — background tasks are unaffected. The right-hand log panel can flip between each site's live feed at any time.
 
-**Q: 如何暂停任务？**
-A: 点击开始按钮旁边的 **⏸** 按钮，任务会在当前图片下载完成后暂停（不会中途截断文件）。点击 **▶** 继续。
+**Q: How do I pause a task?**
+A: Click **⏸** next to Start. The task pauses after the current image finishes downloading (files are never truncated). Click **▶** to resume.
 
-**Q: 如何中止任务？**
-A: 点击 **⏹** 中止按钮，弹出确认框，确认后任务会在当前图片下载完成后退出（同样不会截断文件）。已下载的图片和记录全部保留，下次运行会自动跳过。中止 Danbooru 任务不会影响正在跑的 Yande 任务，两者完全独立。
+**Q: How do I stop a task?**
+A: Click **⏹**, confirm, and the task exits after the current image finishes. Files and history are kept, so the next run resumes from where you left off. Stopping Danbooru does not affect a running Yande.re task — they are fully independent.
 
-**Q: 想换搜索词怎么办？**
-A: 先点 **⏹** 中止当前任务，等状态变成「已中止」后修改搜索词，再点开始即可。不需要刷新页面，这样另一个站点的任务不会受影响。
+**Q: How do I change the search tag?**
+A: Click **⏹** to stop, wait until the status shows "Stopped", edit the tag, and hit Start again. No page reload is needed, and the other site's task is not affected.
 
-**Q: 意外关闭页面，任务还在吗？**
-A: 关闭浏览器只断开了前端连接，后台 Flask 服务和下载线程仍在运行。重新打开页面后可以看到最新状态。但关闭 `app.py` 进程（Ctrl+C）会终止所有任务。
+**Q: I closed the browser tab — is the task still running?**
+A: Closing the browser only drops the frontend connection. Flask and the download threads continue to run. Reopening the page shows current state. Killing `app.py` (Ctrl+C) does stop everything.
 
-**Q: 两个站点可以同时跑吗？**
-A: 可以。Danbooru 和 Yande.re 是两个独立域名，同时跑一个 Danbooru 和一个 Yande.re 任务完全没问题，不会互相影响。但不建议同一站点同时跑多个任务（总请求频率叠加，容易触发限流）。
+**Q: Can I run both sites at the same time?**
+A: Yes. Danbooru and Yande.re are independent domains — running one task on each is fine. Running multiple concurrent tasks on the *same* site is discouraged (combined request rates will likely trip throttling).
 
 ---
 
 ## License
 
-本项目基于 [MIT License](LICENSE) 开源。你可以自由使用、修改、分发本项目的代码，只需保留原始版权声明。
+This project is released under the [MIT License](LICENSE). You are free to use, modify, and distribute it, provided that the original copyright notice is retained.
 
 Copyright © 2026 ChuUNiMuggle

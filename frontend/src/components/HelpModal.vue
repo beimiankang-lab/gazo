@@ -1,45 +1,43 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n';
+
 const model = defineModel<boolean>({ required: true });
+const { t, tm } = useI18n();
+
+const s1 = tm('help.s1') as string[];
+const s3 = tm('help.s3') as string[];
 </script>
 
 <template>
   <el-dialog
     v-model="model"
-    title="Gazō 使用教程"
+    :title="t('help.title')"
     width="640px"
     align-center
     :close-on-click-modal="false"
   >
     <div class="help-body">
       <section>
-        <h3>快速开始</h3>
+        <h3>{{ t('help.h1') }}</h3>
         <ol>
-          <li>在左侧标签切换 <b>Danbooru</b> 或 <b>Yande.re</b> 站点</li>
-          <li>填入搜索词与保存目录</li>
-          <li>点击 <b>▶ 开始下载</b>,日志会实时显示在右侧</li>
-          <li>两个站点可以同时运行,切换标签即可查看对方进度</li>
+          <li v-for="(line, idx) in s1" :key="idx">{{ line }}</li>
         </ol>
       </section>
       <section>
-        <h3>搜索词</h3>
-        <p>使用站点的标签语法,词语之间用空格分隔。例如:</p>
-        <pre>hatsune_miku +thighhighs</pre>
-        <p>具体语法请参考对应站点的 Help 页。</p>
+        <h3>{{ t('help.h2') }}</h3>
+        <p>{{ t('help.s2') }}</p>
+        <pre>{{ t('help.s2ex') }}</pre>
+        <p>{{ t('help.s2note') }}</p>
       </section>
       <section>
-        <h3>运行控制</h3>
+        <h3>{{ t('help.h3') }}</h3>
         <ul>
-          <li><b>⏸</b> 暂停,下载队列保持,可随时 <b>▶</b> 继续</li>
-          <li><b>⏹</b> 中止,立即结束,已下载图片保留</li>
-          <li>已下载的记录会保留在侧栏,按 <b>✕</b> 可清除后重新下载</li>
+          <li v-for="(line, idx) in s3" :key="idx">{{ line }}</li>
         </ul>
       </section>
       <section>
-        <h3>关于已删除图片 (仅 Danbooru)</h3>
-        <p>
-          开启开关后会额外抓取被标记为删除的图片,结果依赖站点 API
-          返回,可能需要更长时间。
-        </p>
+        <h3>{{ t('help.h4') }}</h3>
+        <p>{{ t('help.s4') }}</p>
       </section>
     </div>
   </el-dialog>
@@ -56,7 +54,7 @@ const model = defineModel<boolean>({ required: true });
 }
 .help-body h3 {
   font-size: 14px;
-  color: var(--accent-d);
+  color: var(--accent);
   margin-bottom: 6px;
 }
 .help-body p,

@@ -1,6 +1,9 @@
 import { reactive } from 'vue';
 import type { LogEntry, LogLevel, Site, TaskStatus } from '@/types';
 import { pauseTask, resumeTask, startTask, stopTask } from '@/api';
+import { i18n } from '@/locales';
+
+const tt = i18n.global.t as (key: string, params?: Record<string, unknown>) => string;
 
 interface SiteState {
   taskId: string | null;
@@ -82,7 +85,7 @@ function listenLogs(site: Site, taskId: string, offset: number) {
             ? 'stopped'
             : 'done';
       s.status = finalStatus;
-      appendSysLog(site, finalStatus === 'stopped' ? '■ 任务已中止' : '■ 任务结束');
+      appendSysLog(site, finalStatus === 'stopped' ? tt('log.taskStop') : tt('log.taskDone'));
       return;
     }
 
@@ -109,7 +112,7 @@ export function useTasks() {
     s.logs = [];
     s.logCount = 0;
     s.status = 'running';
-    appendSysLog(site, `▶ 启动 ${site === 'danbooru' ? 'Danbooru' : 'Yande.re'} 爬虫，搜索词: ${query}`);
+    appendSysLog(site, tt('log.taskStart', { site: site === 'danbooru' ? 'Danbooru' : 'Yande.re', query }));
 
     try {
       const { task_id } = await startTask({
@@ -122,7 +125,7 @@ export function useTasks() {
       listenLogs(site, task_id, 0);
     } catch (e) {
       s.status = 'error';
-      appendLog(site, `网络错误: ${(e as Error).message}`, 'error');
+      appendLog(site, tt('log.networkError', { msg: (e as Error).message }), 'error');
       throw e;
     }
   }
@@ -142,7 +145,7 @@ export function useTasks() {
     try {
       await stopTask(s.taskId);
     } catch (e) {
-      appendLog(site, `中止失败: ${(e as Error).message}`, 'error');
+      appendLog(site, tt('form.stopFailed', { msg: (e as Error).message }), 'error');
     }
   }
 

@@ -1,44 +1,80 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppHeader from '@/components/AppHeader.vue';
 import Sidebar from '@/components/Sidebar.vue';
 import LogPanel from '@/components/LogPanel.vue';
 import HelpModal from '@/components/HelpModal.vue';
+import SettingsDrawer from '@/components/SettingsDrawer.vue';
 import { getConfig } from '@/api';
+import { useSettings } from '@/useSettings';
 import type { Site } from '@/types';
 
 const currentSite = ref<Site>('danbooru');
 const currentLog = ref<Site>('danbooru');
 const helpOpen = ref(false);
-const defaultDir = ref('');
+const settingsOpen = ref(false);
+const settings = useSettings();
+
+const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null);
+
+const activeDir = computed(() => settings.defaultDir);
 
 function switchSite(site: Site) {
   currentSite.value = site;
   currentLog.value = site;
 }
 
+function onKey(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault();
+    sidebarRef.value?.triggerStart();
+    return;
+  }
+  if (e.key === 'Escape') {
+    sidebarRef.value?.triggerStop();
+    return;
+  }
+  if (e.key === 'F1') {
+    e.preventDefault();
+    helpOpen.value = true;
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+    e.preventDefault();
+    settingsOpen.value = true;
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', onKey);
   try {
     const cfg = await getConfig();
-    defaultDir.value = cfg.default_dir;
+    if (!settings.defaultDir) settings.defaultDir = cfg.default_dir;
   } catch {
     // 后端不可用时让用户自己填
   }
 });
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 </script>
 
 <template>
   <div class="app-shell">
-    <AppHeader @open-help="helpOpen = true" />
+    <AppHeader
+      @open-help="helpOpen = true"
+      @open-settings="settingsOpen = true"
+    />
     <main class="layout">
       <Sidebar
+        ref="sidebarRef"
         :current-site="currentSite"
-        :default-dir="defaultDir"
+        :default-dir="activeDir"
         @switch-site="switchSite"
       />
       <LogPanel v-model:current-log="currentLog" />
     </main>
     <HelpModal v-model="helpOpen" />
+    <SettingsDrawer v-model="settingsOpen" :current-dir="activeDir" />
   </div>
 </template>
 

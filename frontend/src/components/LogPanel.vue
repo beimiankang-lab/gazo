@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onUpdated, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { Site } from '@/types';
 import { useTasks } from '@/useTasks';
 
 const props = defineProps<{ currentLog: Site }>();
 const emit = defineEmits<{ 'update:currentLog': [Site] }>();
 
+const { t } = useI18n();
 const { state } = useTasks();
 
 const logView = ref<HTMLDivElement | null>(null);
@@ -13,25 +15,7 @@ const logView = ref<HTMLDivElement | null>(null);
 const activeLogs = computed(() => state[props.currentLog].logs);
 const activeStatus = computed(() => state[props.currentLog].status);
 
-const statusText = computed(() => {
-  switch (activeStatus.value) {
-    case 'running':
-      return '运行中';
-    case 'paused':
-      return '已暂停';
-    case 'stopping':
-      return '中止中...';
-    case 'done':
-      return '已完成';
-    case 'stopped':
-      return '已中止';
-    case 'error':
-      return '错误';
-    default:
-      return '就绪';
-  }
-});
-
+const statusText = computed(() => t(`status.${activeStatus.value}`));
 const statusClass = computed(() => `status-${activeStatus.value}`);
 
 function clearLog() {
@@ -62,9 +46,7 @@ function switchLog(site: Site) {
 }
 
 const emptyHint = computed(() =>
-  props.currentLog === 'danbooru'
-    ? '启动 Danbooru 任务后日志将在此显示'
-    : '启动 Yande.re 任务后日志将在此显示',
+  props.currentLog === 'danbooru' ? t('log.emptyD') : t('log.emptyY'),
 );
 </script>
 
@@ -86,7 +68,7 @@ const emptyHint = computed(() =>
           ]"
           @click="switchLog(site)"
         >
-          {{ site === 'danbooru' ? 'Danbooru' : 'Yande.re' }} 日志
+          {{ site === 'danbooru' ? t('log.danbooruLog') : t('log.yandeLog') }}
           <span class="tab-badge" />
         </button>
       </div>
@@ -95,8 +77,8 @@ const emptyHint = computed(() =>
           <span class="status-dot" />
           {{ statusText }}
         </span>
-        <button class="icon-btn" title="清空当前日志" @click="clearLog">🗑</button>
-        <button class="icon-btn" title="滚动到底部" @click="scrollToBottom">⬇</button>
+        <button class="icon-btn" :title="t('log.clearLog')" @click="clearLog">🗑</button>
+        <button class="icon-btn" :title="t('log.scrollBottom')" @click="scrollToBottom">⬇</button>
       </div>
     </div>
     <div ref="logView" class="log-view">
@@ -287,7 +269,7 @@ const emptyHint = computed(() =>
   color: var(--accent-err);
 }
 .log-line.log-sys {
-  color: var(--accent-d);
+  color: var(--accent);
   font-weight: 600;
 }
 </style>
