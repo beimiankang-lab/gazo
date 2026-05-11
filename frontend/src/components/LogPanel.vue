@@ -77,8 +77,14 @@ const emptyHint = computed(() =>
           <span class="status-dot" />
           {{ statusText }}
         </span>
-        <button class="icon-btn" :title="t('log.clearLog')" @click="clearLog">🗑</button>
-        <button class="icon-btn" :title="t('log.scrollBottom')" @click="scrollToBottom">⬇</button>
+        <button class="action-btn" @click="clearLog">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          {{ t('log.clearLog') }}
+        </button>
+        <button class="action-btn" @click="scrollToBottom">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+          {{ t('log.scrollBottom') }}
+        </button>
       </div>
     </div>
     <div ref="logView" class="log-view">
@@ -211,21 +217,23 @@ const emptyHint = computed(() =>
 .status.status-error .status-dot {
   background: var(--accent-err);
 }
-.icon-btn {
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   background: transparent;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
   color: var(--text-muted);
-  padding: 4px 8px;
-  border-radius: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  transition:
-    color 0.2s,
-    border-color 0.2s;
+  font-size: 12px;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
-.icon-btn:hover {
+.action-btn:hover {
   color: var(--text);
-  border-color: var(--border);
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.04);
 }
 .log-view {
   flex: 1;
