@@ -39,4 +39,10 @@ export interface StartPayload {
 
 export interface AppConfig {
   default_dir: string;
+  danbooru_login_set: boolean;
+}
+
+export interface DanbooruCredentials {
+  danbooru_login: string;
+  danbooru_api_key: string;
 }

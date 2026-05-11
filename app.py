@@ -18,6 +18,20 @@ from naming import parse_filters
 
 _BASE_DIR = Path(__file__).parent
 _DIST_DIR = _BASE_DIR / "static_dist"
+_CONFIG_PATH = _BASE_DIR / "gazo_config.json"
+
+
+def _load_gazo_config() -> dict:
+    try:
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_gazo_config(data: dict) -> None:
+    existing = _load_gazo_config()
+    existing.update(data)
+    _CONFIG_PATH.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
 
 if not (_DIST_DIR / "index.html").is_file():
     raise RuntimeError(
@@ -174,7 +188,41 @@ def index():
 
 @app.route("/api/config")
 def api_config():
-    return jsonify({"default_dir": DEFAULT_DOWNLOAD_DIR})
+    cfg = _load_gazo_config()
+    return jsonify({
+        "default_dir": DEFAULT_DOWNLOAD_DIR,
+        "danbooru_login_set": bool(cfg.get("danbooru_login")),
+    })
+
+
+@app.route("/api/save_config", methods=["POST"])
+def api_save_config():
+    data = request.get_json(force=True)
+    _save_gazo_config({
+        "danbooru_login":   (data.get("danbooru_login") or "").strip(),
+        "danbooru_api_key": (data.get("danbooru_api_key") or "").strip(),
+    })
+    return jsonify({"ok": True})
+
+
+@app.route("/api/test_danbooru", methods=["POST"])
+def api_test_danbooru():
+    import requests as req
+    data = request.get_json(force=True)
+    login   = (data.get("danbooru_login") or "").strip()
+    api_key = (data.get("danbooru_api_key") or "").strip()
+    auth = (login, api_key) if login and api_key else None
+    try:
+        r = req.get(
+            "https://danbooru.donmai.us/profile.json",
+            auth=auth, timeout=10,
+            headers={"User-Agent": "danbooru-crawler/1.0 (personal use)"},
+        )
+        if r.status_code == 200:
+            return jsonify({"ok": True, "username": r.json().get("name", "")})
+        return jsonify({"ok": False, "error": f"HTTP {r.status_code}"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/start", methods=["POST"])

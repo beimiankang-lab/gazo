@@ -31,19 +31,17 @@ HEADERS = {
 RECORD_FILENAME = ".downloaded_danbooru.json"
 LOG_FILENAME = "download.log"
 
-# Danbooru API 认证（Basic Auth）
-# 在 https://danbooru.donmai.us/users/home 的 API key 页面获取
-# 推荐方式：在项目根目录创建 .env 文件（已被 .gitignore 排除）或通过系统环境变量设置
-# 留空则以匿名方式请求（部分内容受限）
-DANBOORU_LOGIN = os.environ.get("DANBOORU_LOGIN", "")
-DANBOORU_API_KEY = os.environ.get("DANBOORU_API_KEY", "")
-
-
 def get_auth() -> tuple[str, str] | None:
-    """返回 requests 的 auth 参数，未配置则返回 None"""
-    if DANBOORU_LOGIN and DANBOORU_API_KEY:
-        return (DANBOORU_LOGIN, DANBOORU_API_KEY)
-    return None
+    """读取凭据：gazo_config.json > 环境变量，每次调用时读取以支持运行时更新"""
+    try:
+        cfg_path = Path(__file__).parent / "gazo_config.json"
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        login   = cfg.get("danbooru_login")   or os.environ.get("DANBOORU_LOGIN", "")
+        api_key = cfg.get("danbooru_api_key") or os.environ.get("DANBOORU_API_KEY", "")
+    except Exception:
+        login   = os.environ.get("DANBOORU_LOGIN", "")
+        api_key = os.environ.get("DANBOORU_API_KEY", "")
+    return (login, api_key) if login and api_key else None
 
 
 # ── 日志 ──────────────────────────────────────────────────────────────────────
@@ -469,9 +467,9 @@ def run(query: str, include_deleted: bool, output_dir: Path,
 
 def main():
     print("=== danbooru.donmai.us 图片爬虫 ===")
-    if not DANBOORU_LOGIN or not DANBOORU_API_KEY:
+    if not get_auth():
         print("\n[提示] 未配置 API 认证，可能遇到 403 错误。")
-        print("  请在脚本顶部填写 DANBOORU_LOGIN 和 DANBOORU_API_KEY。")
+        print("  请通过 Web 界面设置页面填写 Danbooru 凭据，或创建 .env 文件。")
         print("  API key 获取地址: https://danbooru.donmai.us/users/home\n")
     print("1. 开始下载")
     print("2. 重置指定搜索词的下载记录")

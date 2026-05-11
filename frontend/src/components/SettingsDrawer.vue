@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage } from 'element-plus';
 import { LOCALES, type Locale } from '@/locales';
 import { THEMES, type ThemeKey, type TemplatePreset, useSettings } from '@/useSettings';
+import { getConfig, saveConfig, testDanbooru } from '@/api';
+import type { DanbooruCredentials } from '@/types';
 
 const model = defineModel<boolean>({ required: true });
 const props = defineProps<{ currentDir: string }>();
@@ -32,6 +34,42 @@ const placeholders = '{id} {tag} {artist} {character} {copyright} {index} {ext} 
 function saveCurrentAsDefault() {
   settings.defaultDir = props.currentDir;
   ElMessage.success(t('common.save'));
+}
+
+const danbooruLogin = ref('');
+const danbooruApiKey = ref('');
+const loginSet = ref(false);
+const testLoading = ref(false);
+
+onMounted(async () => {
+  try {
+    const cfg = await getConfig();
+    loginSet.value = cfg.danbooru_login_set;
+  } catch { /* ignore */ }
+});
+
+async function saveDanbooruCreds() {
+  const creds: DanbooruCredentials = {
+    danbooru_login: danbooruLogin.value.trim(),
+    danbooru_api_key: danbooruApiKey.value.trim(),
+  };
+  await saveConfig(creds);
+  loginSet.value = !!(creds.danbooru_login && creds.danbooru_api_key);
+  ElMessage.success(t('common.save'));
+}
+
+async function testDanbooruCreds() {
+  testLoading.value = true;
+  try {
+    const r = await testDanbooru({
+      danbooru_login: danbooruLogin.value.trim(),
+      danbooru_api_key: danbooruApiKey.value.trim(),
+    });
+    if (r.ok) ElMessage.success(t('settings.danbooruTestOk', { name: r.username }));
+    else ElMessage.error(t('settings.danbooruTestFail', { msg: r.error }));
+  } finally {
+    testLoading.value = false;
+  }
 }
 </script>
 
@@ -130,6 +168,28 @@ function saveCurrentAsDefault() {
             style="width: 100%"
           />
           <p class="hint">{{ t('settings.maxSizeHint') }} ({{ t('settings.maxSizeUnit') }})</p>
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane :label="t('settings.tabApiKeys')">
+        <div class="group">
+          <label>{{ t('settings.danbooruApi') }}</label>
+          <div class="status-line" :class="loginSet ? 'ok' : 'warn'">
+            {{ loginSet ? t('settings.danbooruConfigured') : t('settings.danbooruNotConfigured') }}
+          </div>
+          <div class="field-row">
+            <span class="field-label">{{ t('settings.danbooruLogin') }}</span>
+            <el-input v-model="danbooruLogin" :placeholder="t('settings.danbooruLogin')" clearable />
+          </div>
+          <div class="field-row">
+            <span class="field-label">{{ t('settings.danbooruApiKey') }}</span>
+            <el-input v-model="danbooruApiKey" type="password" show-password :placeholder="t('settings.danbooruApiKey')" />
+          </div>
+          <p class="hint">{{ t('settings.danbooruApiHint') }}</p>
+          <div class="btn-row">
+            <el-button @click="saveDanbooruCreds">{{ t('common.save') }}</el-button>
+            <el-button :loading="testLoading" @click="testDanbooruCreds">{{ t('settings.testConnection') }}</el-button>
+          </div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -231,5 +291,36 @@ kbd {
   font-family: 'Consolas', monospace;
   font-size: 11px;
   color: var(--text);
+}
+.status-line {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+.status-line.ok {
+  background: rgba(61, 220, 132, 0.1);
+  color: var(--accent-ok);
+  border: 1px solid rgba(61, 220, 132, 0.25);
+}
+.status-line.warn {
+  background: rgba(107, 122, 153, 0.1);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.field-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 </style>

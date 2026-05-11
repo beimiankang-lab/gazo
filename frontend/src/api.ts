@@ -1,4 +1,4 @@
-import type { RecordsResponse, StartPayload, TaskStatus, AppConfig } from '@/types';
+import type { RecordsResponse, StartPayload, TaskStatus, AppConfig, DanbooruCredentials } from '@/types';
 
 async function asJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -71,4 +71,24 @@ export async function resetRecord(
     body: JSON.stringify({ site, query, output_dir: outputDir }),
   });
   return asJson<{ ok: boolean }>(res);
+}
+
+export async function saveConfig(creds: DanbooruCredentials): Promise<{ ok: boolean }> {
+  const res = await fetch('/api/save_config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(creds),
+  });
+  return asJson<{ ok: boolean }>(res);
+}
+
+export async function testDanbooru(
+  creds: DanbooruCredentials,
+): Promise<{ ok: boolean; username?: string; error?: string }> {
+  const res = await fetch('/api/test_danbooru', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(creds),
+  });
+  return asJson<{ ok: boolean; username?: string; error?: string }>(res);
 }
