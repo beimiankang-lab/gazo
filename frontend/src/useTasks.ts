@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import type { LogEntry, LogLevel, Site, TaskStatus } from '@/types';
 import { pauseTask, resumeTask, startTask, stopTask } from '@/api';
 import { i18n } from '@/locales';
+import { useSettings } from '@/useSettings';
 
 const tt = i18n.global.t as (key: string, params?: Record<string, unknown>) => string;
 
@@ -108,6 +109,7 @@ function listenLogs(site: Site, taskId: string, offset: number) {
 export function useTasks() {
   async function start(site: Site, query: string, outputDir: string, includeDeleted = false) {
     const s = state[site];
+    const settings = useSettings();
     closeStream(site);
     s.logs = [];
     s.logCount = 0;
@@ -120,6 +122,14 @@ export function useTasks() {
         query,
         output_dir: outputDir,
         include_deleted: includeDeleted,
+        template_preset: settings.templatePreset,
+        template_custom: settings.templateCustom,
+        filters: {
+          allow_image: settings.fileTypes.image,
+          allow_animated: settings.fileTypes.animated,
+          allow_video: settings.fileTypes.video,
+          max_size_mb: settings.maxSizeMb,
+        },
       });
       s.taskId = task_id;
       listenLogs(site, task_id, 0);

@@ -12,6 +12,7 @@ import logging
 import requests
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from naming import PostCtx, Filters, render_path
 
 # ── 站点基础配置 ──────────────────────────────────────────────────────────────
 BASE_URL = "https://yande.re"
@@ -328,7 +329,10 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
 
 def process_posts(posts: list[dict], query: str, output_dir: Path,
                   extra_handler: logging.Handler | None = None,
-                  pause_event=None, stop_event=None) -> None:
+                  pause_event=None, stop_event=None,
+                  template_preset: str = "default",
+                  template_custom: str = "",
+                  filters=None) -> None:
     """
     处理帖子列表：跳过已下载、查询标签类型、命名、下载图片并更新记录。
     extra_handler: 可选，前端实时日志 Handler。
@@ -362,50 +366,60 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
         post_id = post.get("id")
         file_url = post.get("file_url", "")
         file_ext = post.get("file_ext", "jpg")
+        file_size = post.get("file_size")
         tags_str = post.get("tags", "")
 
         if not file_url:
             logger.warning(f"[{i}/{total}] 帖子 {post_id}: 无下载链接，跳过")
             continue
 
-        # 已在记录中 → 跳过，避免重复下载
         if post_id in downloaded:
             logger.debug(f"[{i}/{total}] 已下载，跳过 (id={post_id})")
             continue
 
+        if filters is not None:
+            reason = filters.rejects(file_ext, file_size)
+            if reason:
+                logger.info(f"[{i}/{total}] {reason}")
+                continue
+
         artists, characters = classify_tags(tags_str)
-        folder_name = get_folder_name(artists)
-        # 目录结构：output_dir/搜索词/yande/作者名/
-        folder_path = output_dir / query / "yande" / folder_name
+        rating = post.get("rating", "")
 
-        # 首次遇到该文件夹时扫描已有文件数，确定起始序号
-        if folder_name not in folder_counters:
-            folder_counters[folder_name] = get_next_index(folder_path)
+        ctx = PostCtx(
+            site="yande",
+            post_id=post_id,
+            query=query,
+            artists=artists,
+            characters=characters,
+            rating=rating,
+            ext=file_ext,
+        )
+        folder_key = ctx.artist_name
+        if folder_key not in folder_counters:
+            probe = render_path(template_preset, template_custom, ctx, 1, output_dir)
+            folder_counters[folder_key] = get_next_index(probe.parent)
 
-        index = folder_counters[folder_name]
-        filename = build_filename(query, artists, characters, index, file_ext)
-        filepath = folder_path / filename
+        index = folder_counters[folder_key]
+        filepath = render_path(template_preset, template_custom, ctx, index, output_dir)
 
-        logger.info(f"[{i}/{total}] 下载: {filename}")
-        # 中止优先于暂停
+        logger.info(f"[{i}/{total}] 下载: {filepath.name}")
         if stop_event is not None and stop_event.is_set():
             logger.info("收到中止信号，停止下载")
             break
-        # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
         if pause_event is not None:
             pause_event.wait()
-        # 暂停解除后可能已收到中止信号，再检查一次
         if stop_event is not None and stop_event.is_set():
             logger.info("收到中止信号，停止下载")
             break
 
         success = download_image(file_url, filepath, logger)
         if success:
-            folder_counters[folder_name] += 1
+            folder_counters[folder_key] += 1
             downloaded.add(post_id)
             # 每次成功后立即持久化，防止中途中断丢失进度
             save_downloaded(record_path, query, downloaded)
-            logger.debug(f"[{i}/{total}] 成功: {filename}")
+            logger.debug(f"[{i}/{total}] 成功: {filepath.name}")
 
         time.sleep(0.5)   # 每张图片下载间隔，避免请求过于频繁
 

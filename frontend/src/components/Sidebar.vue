@@ -152,7 +152,7 @@ watch(
 .sidebar {
   background: var(--panel);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }

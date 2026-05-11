@@ -11,6 +11,7 @@ import json
 import logging
 import requests
 from pathlib import Path
+from naming import PostCtx, Filters, render_path
 
 # 加载项目根目录的 .env 文件到环境变量（若存在）
 try:
@@ -310,7 +311,10 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
 
 def process_posts(posts: list[dict], query: str, output_dir: Path,
                   extra_handler: logging.Handler | None = None,
-                  pause_event=None, stop_event=None) -> None:
+                  pause_event=None, stop_event=None,
+                  template_preset: str = "default",
+                  template_custom: str = "",
+                  filters=None) -> None:
     """
     处理帖子列表：跳过已下载、命名、下载图片并更新记录。
     按 is_deleted 分组处理，先下载正常图片再下载已删除图片，日志分类展示。
@@ -364,42 +368,59 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
 
             file_url = post.get("file_url") or post.get("large_file_url", "")
             file_ext = post.get("file_ext", "jpg")
+            file_size = post.get("file_size")
 
             if not file_url:
                 logger.warning(f"{prefix} 帖子 {post_id}: 无下载链接，跳过")
                 stats[stat_key]["skip"] += 1
                 continue
 
+            if filters is not None:
+                reason = filters.rejects(file_ext, file_size)
+                if reason:
+                    logger.info(f"{prefix} {reason}")
+                    stats[stat_key]["skip"] += 1
+                    continue
+
             artists, characters = classify_tags(post)
-            folder_name = get_folder_name(artists)
-            folder_path = output_dir / query / "danbooru" / folder_name
+            rating = post.get("rating", "")
 
-            if folder_name not in folder_counters:
-                folder_counters[folder_name] = get_next_index(folder_path)
+            ctx = PostCtx(
+                site="danbooru",
+                post_id=post_id,
+                query=query,
+                artists=artists,
+                characters=characters,
+                rating=rating,
+                ext=file_ext,
+            )
+            folder_key = ctx.artist_name
+            if folder_key not in folder_counters:
+                # 预估起始序号（仅 default 预设有意义）
+                probe = render_path(template_preset, template_custom, ctx, 1, output_dir)
+                folder_counters[folder_key] = get_next_index(probe.parent)
 
-            index = folder_counters[folder_name]
-            filename = build_filename(query, artists, characters, index, file_ext)
-            filepath = folder_path / filename
+            index = folder_counters[folder_key]
+            filepath = render_path(template_preset, template_custom, ctx, index, output_dir)
 
-            logger.info(f"{prefix} 下载: {filename}")
+            logger.info(f"{prefix} 下载: {filepath.name}")
             # 中止优先于暂停：中止时直接退出当前组
             if is_stopped():
                 logger.info(f"[{group_label}] 收到中止信号，停止下载")
                 return
             if pause_event is not None:
                 pause_event.wait()
-            # 暂停解除后可能已收到中止信号，再检查一次
             if is_stopped():
                 logger.info(f"[{group_label}] 收到中止信号，停止下载")
                 return
 
             success = download_image(file_url, filepath, logger)
             if success:
-                folder_counters[folder_name] += 1
+                folder_counters[folder_key] += 1
                 stats[stat_key]["success"] += 1
                 downloaded.add(post_id)
                 save_downloaded(record_path, query, downloaded)
-                logger.debug(f"{prefix} 成功: {filename}")
+                logger.debug(f"{prefix} 成功: {filepath.name}")
             else:
                 stats[stat_key]["fail"] += 1
 

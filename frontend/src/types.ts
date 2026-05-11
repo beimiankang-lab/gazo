@@ -27,6 +27,14 @@ export interface StartPayload {
   query: string;
   output_dir: string;
   include_deleted?: boolean;
+  template_preset?: string;
+  template_custom?: string;
+  filters?: {
+    allow_image: boolean;
+    allow_animated: boolean;
+    allow_video: boolean;
+    max_size_mb: number | null;
+  };
 }
 
 export interface AppConfig {

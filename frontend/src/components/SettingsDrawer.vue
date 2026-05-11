@@ -97,7 +97,6 @@ function saveCurrentAsDefault() {
             <el-input v-model="settings.templateCustom" type="textarea" :rows="2" />
             <p class="hint">{{ t('settings.templateHelp', { placeholders }) }}</p>
           </div>
-          <p class="hint warn">{{ t('settings.templateComingSoon') }}</p>
         </div>
       </el-tab-pane>
 
@@ -132,7 +131,6 @@ function saveCurrentAsDefault() {
           />
           <p class="hint">{{ t('settings.maxSizeHint') }} ({{ t('settings.maxSizeUnit') }})</p>
         </div>
-        <p class="hint warn">{{ t('settings.filterComingSoon') }}</p>
       </el-tab-pane>
     </el-tabs>
   </el-drawer>

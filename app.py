@@ -14,6 +14,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory, stream
 
 import danbooru_crawler as danbooru
 import yande_crawler as yande
+from naming import parse_filters
 
 _BASE_DIR = Path(__file__).parent
 _DIST_DIR = _BASE_DIR / "static_dist"
@@ -80,7 +81,9 @@ def _task_log(task_id: str, msg: str):
 
 # ── 爬虫任务线程 ──────────────────────────────────────────────────────────────
 
-def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: Path):
+def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: Path,
+                  template_preset: str = "default", template_custom: str = "",
+                  filters_raw: dict | None = None):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -88,6 +91,7 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
 
     pause_event = _tasks[task_id]["pause_event"]
     stop_event  = _tasks[task_id]["stop_event"]
+    filters     = parse_filters(filters_raw)
 
     def log_fn(msg: str):
         _task_log(task_id, msg)
@@ -105,7 +109,10 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
             danbooru.process_posts(posts, query, output_dir,
                                    extra_handler=handler,
                                    pause_event=pause_event,
-                                   stop_event=stop_event)
+                                   stop_event=stop_event,
+                                   template_preset=template_preset,
+                                   template_custom=template_custom,
+                                   filters=filters)
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -116,7 +123,9 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
         _tasks[task_id]["queue"].put("__DONE__")
 
 
-def _run_yande(task_id: str, query: str, output_dir: Path):
+def _run_yande(task_id: str, query: str, output_dir: Path,
+               template_preset: str = "default", template_custom: str = "",
+               filters_raw: dict | None = None):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -124,6 +133,7 @@ def _run_yande(task_id: str, query: str, output_dir: Path):
 
     pause_event = _tasks[task_id]["pause_event"]
     stop_event  = _tasks[task_id]["stop_event"]
+    filters     = parse_filters(filters_raw)
 
     def log_fn(msg: str):
         _task_log(task_id, msg)
@@ -141,7 +151,10 @@ def _run_yande(task_id: str, query: str, output_dir: Path):
             yande.process_posts(posts, query, output_dir,
                                 extra_handler=handler,
                                 pause_event=pause_event,
-                                stop_event=stop_event)
+                                stop_event=stop_event,
+                                template_preset=template_preset,
+                                template_custom=template_custom,
+                                filters=filters)
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -172,6 +185,9 @@ def api_start():
     query = (data.get("query") or "").strip()
     include_deleted = bool(data.get("include_deleted", False))
     output_dir = Path(data.get("output_dir") or DEFAULT_DOWNLOAD_DIR)
+    template_preset = data.get("template_preset", "default")
+    template_custom = data.get("template_custom", "")
+    filters_raw = data.get("filters") or None
 
     if not query:
         return jsonify({"error": "搜索词不能为空"}), 400
@@ -196,11 +212,13 @@ def api_start():
 
     if site == "danbooru":
         t = threading.Thread(target=_run_danbooru,
-                             args=(task_id, query, include_deleted, output_dir),
+                             args=(task_id, query, include_deleted, output_dir,
+                                   template_preset, template_custom, filters_raw),
                              daemon=True)
     else:
         t = threading.Thread(target=_run_yande,
-                             args=(task_id, query, output_dir),
+                             args=(task_id, query, output_dir,
+                                   template_preset, template_custom, filters_raw),
                              daemon=True)
 
     t.start()
