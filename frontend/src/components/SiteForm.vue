@@ -148,6 +148,10 @@ function onStart() {
             </button>
           </div>
           <div class="checkbox-grid">
+            <label class="check-card" v-if="props.site === 'danbooru'">
+              <el-checkbox v-model="form.rating.general" :disabled="isActive" />
+              <span>{{ t('form.ratingGeneral') }}</span>
+            </label>
             <label class="check-card">
               <el-checkbox v-model="form.rating.safe" :disabled="isActive" />
               <span>{{ t('form.ratingSafe') }}</span>
@@ -386,7 +390,7 @@ function onStart() {
 
 .checkbox-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   gap: 10px;
 }
 

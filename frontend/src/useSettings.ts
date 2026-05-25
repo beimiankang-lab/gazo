@@ -24,6 +24,7 @@ export const THEMES: Record<ThemeKey, ThemeSpec> = {
 export type TemplatePreset = 'default' | 'byId' | 'byArtist' | 'flat' | 'custom';
 
 export interface RatingSettings {
+  general: boolean;
   safe: boolean;
   questionable: boolean;
   explicit: boolean;
@@ -64,7 +65,7 @@ export interface Settings {
 const STORAGE_KEY = 'gazo:settings:v1';
 
 function defaultRating(): RatingSettings {
-  return { safe: false, questionable: false, explicit: false };
+  return { general: false, safe: false, questionable: false, explicit: false };
 }
 
 function defaultFileTypes(): FileTypeSettings {
@@ -250,10 +251,12 @@ export function getSiteSettings(site: Site): SiteFormSettings {
 export function getRatingPicks(site: Site): string[] {
   const r = state.sites[site].rating;
   const picks: string[] = [];
+  if (site === 'danbooru' && r.general) picks.push('g');
   if (r.safe) picks.push('s');
   if (r.questionable) picks.push('q');
   if (r.explicit) picks.push('e');
-  if (picks.length === 3) return [];
+  const total = site === 'danbooru' ? 4 : 3;
+  if (picks.length === total) return [];
   return picks;
 }
 

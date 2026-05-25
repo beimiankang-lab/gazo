@@ -30,7 +30,7 @@ class PostCtx:
     query: str               # 用户输入的搜索词（不含评级片段）
     artists: list[str]
     characters: list[str]
-    rating: str              # "s" / "q" / "e"，未知时为 ""
+    rating: str              # "g" / "s" / "q" / "e"，未知时为 ""
     ext: str                 # 无前导点
     # 新增可选字段：date(YYYY-MM-DD), md5, copyrights
     date: str = ""
