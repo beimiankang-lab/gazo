@@ -2,8 +2,8 @@
 from pathlib import Path
 
 block_cipher = None
-ROOT = Path('d:/Gazo')
-ICON_PATH = ROOT / 'frontend' / 'public' / 'logo' / 'logo.ico'
+ROOT = Path('.').resolve()
+ICON_PATH = ROOT / 'static_dist' / 'logo' / 'logo.ico'
 
 
 a = Analysis(
@@ -13,6 +13,7 @@ a = Analysis(
     datas=[
         ('static_dist', 'static_dist'),
         ('naming.py', '.'),
+        ('download_runtime.py', '.'),
     ],
     hiddenimports=[
         'flask',
@@ -21,6 +22,7 @@ a = Analysis(
         'danbooru_crawler',
         'yande_crawler',
         'naming',
+        'download_runtime',
     ],
     hookspath=[],
     hooksconfig={},

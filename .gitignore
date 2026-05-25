@@ -26,6 +26,7 @@ static_dist/
 # PyInstaller 打包产物
 build/
 dist/
+release/
 
 # Claude Code
 .claude/
