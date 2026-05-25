@@ -1,28 +1,34 @@
 import { reactive } from 'vue';
-import type { LogEntry, LogLevel, Site, TaskStatus } from '@/types';
-import { pauseTask, resumeTask, startTask, stopTask } from '@/api';
+import type { FailedItem, LogEntry, LogLevel, ProgressData, Site, TaskStatus } from '@/types';
+import { listActiveTasks, pauseTask, resumeTask, retryFailed, startTask, stopTask } from '@/api';
 import { i18n } from '@/locales';
-import { useSettings } from '@/useSettings';
+import { getSiteSettings, useSettings } from '@/useSettings';
 
 const tt = i18n.global.t as (key: string, params?: Record<string, unknown>) => string;
 
 interface SiteState {
   taskId: string | null;
   status: TaskStatus;
+  query: string;
   logs: LogEntry[];
   logCount: number;
   evtSrc: EventSource | null;
   reconnectTimer: number | null;
+  progress: ProgressData;
+  failedItems: FailedItem[];
 }
 
 function makeSiteState(): SiteState {
   return {
     taskId: null,
     status: 'idle',
+    query: '',
     logs: [],
     logCount: 0,
     evtSrc: null,
     reconnectTimer: null,
+    progress: { current: 0, total: 0 },
+    failedItems: [],
   };
 }
 
@@ -35,8 +41,10 @@ let nextLogId = 1;
 
 function classify(text: string): LogLevel {
   if (text.includes('[DEBUG]')) return 'debug';
-  if (text.includes('[WARNING]') || text.includes('[警告]')) return 'warn';
-  if (text.includes('[ERROR]') || text.includes('失败')) return 'error';
+  if (text.includes('[WARNING]')) return 'warn';
+  if (text.includes('[ERROR]')) return 'error';
+  if (text.includes('警告')) return 'warn';
+  if (text.includes('失败') || text.includes('错误')) return 'error';
   return 'info';
 }
 
@@ -68,7 +76,17 @@ function listenLogs(site: Site, taskId: string, offset: number) {
   s.evtSrc = evtSrc;
 
   evtSrc.onmessage = (e) => {
-    let data: { heartbeat?: number; done?: boolean; status?: TaskStatus; log?: string };
+    let data: {
+      heartbeat?: number;
+      done?: boolean;
+      status?: TaskStatus;
+      log?: string;
+      type?: string;
+      current?: number;
+      total?: number;
+      failed_posts?: FailedItem[];
+    };
+
     try {
       data = JSON.parse(e.data);
     } catch {
@@ -86,9 +104,17 @@ function listenLogs(site: Site, taskId: string, offset: number) {
             ? 'stopped'
             : 'done';
       s.status = finalStatus;
+      if (Array.isArray(data.failed_posts)) s.failedItems = data.failed_posts;
       appendSysLog(site, finalStatus === 'stopped' ? tt('log.taskStop') : tt('log.taskDone'));
       return;
     }
+
+    if (data.type === 'progress' && data.current !== undefined && data.total !== undefined) {
+      s.progress = { current: data.current, total: data.total };
+      return;
+    }
+
+    if (data.type === 'fail') return;
 
     if (data.log) {
       appendLog(site, data.log, classify(data.log));
@@ -98,7 +124,7 @@ function listenLogs(site: Site, taskId: string, offset: number) {
 
   evtSrc.onerror = () => {
     closeStream(site);
-    if (s.status === 'running' || s.status === 'paused' || s.status === 'stopping') {
+    if (['running', 'paused', 'stopping'].includes(s.status)) {
       s.reconnectTimer = window.setTimeout(() => {
         if (s.taskId === taskId) listenLogs(site, taskId, s.logCount);
       }, 2000);
@@ -107,29 +133,59 @@ function listenLogs(site: Site, taskId: string, offset: number) {
 }
 
 export function useTasks() {
-  async function start(site: Site, query: string, outputDir: string, includeDeleted = false) {
+  async function start(
+    site: Site,
+    query: string,
+    rawQuery: string,
+    outputDir: string,
+    includeDeleted = false,
+    maxPosts: number | null = null,
+    ratings?: string[],
+  ) {
     const s = state[site];
     const settings = useSettings();
+    const siteSettings = getSiteSettings(site);
     closeStream(site);
     s.logs = [];
     s.logCount = 0;
+    s.progress = { current: 0, total: 0 };
+    s.failedItems = [];
     s.status = 'running';
-    appendSysLog(site, tt('log.taskStart', { site: site === 'danbooru' ? 'Danbooru' : 'Yande.re', query }));
+    s.query = rawQuery;
+    appendSysLog(
+      site,
+      tt('log.taskStart', {
+        site: site === 'danbooru' ? 'Danbooru' : 'Yande.re',
+        query: rawQuery,
+      }),
+    );
 
     try {
-      const { task_id } = await startTask({
+      const basePayload = {
         site,
         query,
+        raw_query: rawQuery,
         output_dir: outputDir,
         include_deleted: includeDeleted,
         template_preset: settings.templatePreset,
         template_custom: settings.templateCustom,
+        path_template: settings.pathTemplate,
+        file_template: settings.fileTemplate,
+        max_posts: maxPosts,
+        ratings,
         filters: {
-          allow_image: settings.fileTypes.image,
-          allow_animated: settings.fileTypes.animated,
-          allow_video: settings.fileTypes.video,
-          max_size_mb: settings.maxSizeMb,
+          allow_image: siteSettings.fileTypes.image,
+          allow_animated: siteSettings.fileTypes.animated,
+          allow_video: siteSettings.fileTypes.video,
+          max_size_mb: siteSettings.maxSizeMb,
         },
+      };
+      const { task_id } = await startTask({
+        ...basePayload,
+        download_concurrency:
+          site === 'danbooru'
+            ? settings.danbooruDownloadConcurrency
+            : settings.yandeDownloadConcurrency,
       });
       s.taskId = task_id;
       listenLogs(site, task_id, 0);
@@ -142,7 +198,7 @@ export function useTasks() {
 
   async function togglePause(site: Site) {
     const s = state[site];
-    if (!s.taskId) return;
+    if (!s.taskId || s.status === 'stopping') return;
     const fn = s.status === 'paused' ? resumeTask : pauseTask;
     const { status } = await fn(s.taskId);
     s.status = status;
@@ -159,10 +215,56 @@ export function useTasks() {
     }
   }
 
+  async function retryFailedDownloads(site: Site) {
+    const s = state[site];
+    if (!s.taskId) return;
+    s.status = 'running';
+    s.progress = { current: 0, total: s.failedItems.length };
+    s.failedItems = [];
+    appendSysLog(site, tt('log.retryStart', { n: s.progress.total }));
+    try {
+      await retryFailed(s.taskId);
+      listenLogs(site, s.taskId, s.logCount);
+    } catch (e) {
+      s.status = 'error';
+      appendLog(site, tt('log.retryFailed', { msg: (e as Error).message }), 'error');
+    }
+  }
+
+  async function reattachActiveTasks() {
+    try {
+      const tasks = await listActiveTasks();
+      for (const task of tasks) {
+        const s = state[task.site];
+        if (s.taskId === task.task_id && s.evtSrc) continue;
+        closeStream(task.site);
+        s.taskId = task.task_id;
+        s.status = task.status;
+        s.query = task.raw_query || task.query;
+        s.logs = [];
+        s.logCount = 0;
+        s.progress = task.progress || { current: 0, total: 0 };
+        s.failedItems = [];
+        appendSysLog(
+          task.site,
+          tt('log.taskReattach', {
+            site: task.site === 'danbooru' ? 'Danbooru' : 'Yande.re',
+            query: s.query,
+          }),
+        );
+        listenLogs(task.site, task.task_id, 0);
+      }
+    } catch {
+      // Ignore reconnect failures when backend is unavailable.
+    }
+  }
+
   return {
     state,
     start,
     togglePause,
     requestStop,
+    reattachActiveTasks,
+    retryFailedDownloads,
   };
 }

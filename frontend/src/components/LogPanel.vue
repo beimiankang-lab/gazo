@@ -1,103 +1,158 @@
 <script setup lang="ts">
-import { computed, nextTick, onUpdated, ref, watch } from 'vue';
-import { useI18n } from 'vue-i18n';
+import { computed, ref } from 'vue';
 import type { Site } from '@/types';
 import { useTasks } from '@/useTasks';
 
 const props = defineProps<{ currentLog: Site }>();
 const emit = defineEmits<{ 'update:currentLog': [Site] }>();
 
-const { t } = useI18n();
-const { state } = useTasks();
+const { state, retryFailedDownloads } = useTasks();
+const showErrors = ref(true);
+const showRuntime = ref(true);
+const runtimeScrollRef = ref<HTMLElement | null>(null);
+const errorScrollRef = ref<HTMLElement | null>(null);
 
-const logView = ref<HTMLDivElement | null>(null);
-
-const activeLogs = computed(() => state[props.currentLog].logs);
-const activeStatus = computed(() => state[props.currentLog].status);
-
-const statusText = computed(() => t(`status.${activeStatus.value}`));
-const statusClass = computed(() => `status-${activeStatus.value}`);
-
-function clearLog() {
-  state[props.currentLog].logs = [];
-  state[props.currentLog].logCount = 0;
-}
-
-function scrollToBottom() {
-  const el = logView.value;
+function scrollToBottom(el: HTMLElement | null) {
   if (el) el.scrollTop = el.scrollHeight;
 }
 
-onUpdated(() => {
-  const el = logView.value;
-  if (!el) return;
-  if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
-    el.scrollTop = el.scrollHeight;
+const activeState = computed(() => state[props.currentLog]);
+const activeLogs = computed(() => activeState.value.logs);
+const activeStatus = computed(() => activeState.value.status);
+const activeQuery = computed(() => activeState.value.query);
+const progress = computed(() => activeState.value.progress);
+const failedItems = computed(() => activeState.value.failedItems);
+
+const isActive = computed(() => ['running', 'paused', 'stopping'].includes(activeStatus.value));
+const showRetry = computed(() => ['done', 'stopped', 'error'].includes(activeStatus.value) && failedItems.value.length > 0);
+const progressPercent = computed(() => {
+  if (!progress.value.total) return 0;
+  return Math.round((progress.value.current / progress.value.total) * 100);
+});
+const latestLog = computed(() => activeLogs.value[activeLogs.value.length - 1]?.text || '');
+const errorLogs = computed(() => activeLogs.value.filter((log) => log.level === 'error' || log.level === 'warn'));
+const runtimeLogs = computed(() => activeLogs.value.filter((log) => log.level !== 'error' && log.level !== 'warn'));
+const statusLabel = computed(() => {
+  switch (activeStatus.value) {
+    case 'running':
+      return '运行中 / Running';
+    case 'paused':
+      return '已暂停 / Paused';
+    case 'stopping':
+      return '中止中 / Stopping';
+    case 'done':
+      return '已完成 / Done';
+    case 'stopped':
+      return '已中止 / Stopped';
+    case 'error':
+      return '出错 / Error';
+    default:
+      return '待命 / Idle';
   }
 });
-
-watch(
-  () => props.currentLog,
-  () => nextTick(scrollToBottom),
-);
 
 function switchLog(site: Site) {
   emit('update:currentLog', site);
 }
 
-const emptyHint = computed(() =>
-  props.currentLog === 'danbooru' ? t('log.emptyD') : t('log.emptyY'),
-);
+function clearLog() {
+  activeState.value.logs = [];
+  activeState.value.logCount = 0;
+}
+
+function onRetry() {
+  retryFailedDownloads(props.currentLog);
+}
 </script>
 
 <template>
   <section class="log-panel">
     <div class="log-header">
-      <div class="log-tabs">
+      <div class="tabs">
         <button
           v-for="site in (['danbooru', 'yande'] as Site[])"
           :key="site"
-          class="log-tab"
-          :class="[
-            `site-${site}`,
-            {
-              active: currentLog === site,
-              'has-task': ['running', 'paused', 'stopping'].includes(state[site].status),
-              'task-paused': state[site].status === 'paused',
-            },
-          ]"
+          class="tab-btn"
+          :class="{ active: currentLog === site }"
           @click="switchLog(site)"
         >
-          {{ site === 'danbooru' ? t('log.danbooruLog') : t('log.yandeLog') }}
-          <span class="tab-badge" />
+          {{ site === 'danbooru' ? 'Danbooru' : 'Yande.re' }}
         </button>
       </div>
-      <div class="status-bar">
-        <span class="status" :class="statusClass">
-          <span class="status-dot" />
-          {{ statusText }}
-        </span>
-        <button class="action-btn" @click="clearLog">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          {{ t('log.clearLog') }}
+      <div class="header-actions">
+        <span class="status-pill" :class="`status-${activeStatus}`">{{ statusLabel }}</span>
+        <button v-if="showRetry" class="tool-btn warn" @click="onRetry">
+          Retry {{ failedItems.length }}
         </button>
-        <button class="action-btn" @click="scrollToBottom">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-          {{ t('log.scrollBottom') }}
-        </button>
+        <button class="tool-btn" @click="clearLog">Clear</button>
       </div>
     </div>
-    <div ref="logView" class="log-view">
-      <div v-if="activeLogs.length === 0" class="log-empty">
-        <span class="icon">📋</span>
-        <span>{{ emptyHint }}</span>
+
+    <div class="log-body">
+      <div class="summary-card">
+        <div class="summary-row">
+          <span class="summary-label">当前搜索词 / Query</span>
+          <span class="summary-value">{{ activeQuery || '-' }}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">最近状态 / Latest</span>
+          <span class="summary-value">{{ latestLog || '暂无日志 / No logs yet' }}</span>
+        </div>
       </div>
-      <span
-        v-for="line in activeLogs"
-        :key="line.id"
-        class="log-line"
-        :class="`log-${line.level}`"
-      >{{ line.text }}</span>
+
+      <div v-if="isActive || showRetry" class="progress-section">
+        <div class="progress-top">
+          <span>下载进度 / Progress</span>
+          <span>{{ progress.current }} / {{ progress.total }}</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
+        </div>
+        <div v-if="isActive && progress.total === 0" class="prepare-hint">
+          正在准备任务，请稍候。你会在下面看到运行日志，例如正在获取页数、整理下载队列、统计图片数量。
+        </div>
+      </div>
+
+      <div class="log-section">
+        <div class="section-header">
+          <button class="section-toggle" @click="showRuntime = !showRuntime">
+            {{ showRuntime ? 'Hide' : 'Show' }} 运行日志 / Runtime Log
+          </button>
+          <button v-if="showRuntime && runtimeLogs.length > 0" class="scroll-btn" @click="scrollToBottom(runtimeScrollRef)">Scroll to bottom</button>
+        </div>
+        <div v-if="runtimeLogs.length === 0 && !isActive" class="empty-box">
+          这里会显示下载前准备、抓取页数、统计数量、开始下载等实时过程。
+        </div>
+        <div v-else-if="showRuntime" ref="runtimeScrollRef" class="log-list runtime-scroll">
+          <div
+            v-for="line in runtimeLogs"
+            :key="line.id"
+            class="log-line"
+            :class="`log-${line.level}`"
+          >
+            {{ line.text }}
+          </div>
+        </div>
+      </div>
+
+      <div v-if="errorLogs.length > 0" class="log-section error-section">
+        <div class="section-header">
+          <button class="section-toggle" @click="showErrors = !showErrors">
+            {{ showErrors ? 'Hide' : 'Show' }} Warnings / Errors ({{ errorLogs.length }})
+          </button>
+          <button v-if="showErrors" class="scroll-btn" @click="scrollToBottom(errorScrollRef)">Scroll to bottom</button>
+        </div>
+        <div v-if="showErrors" ref="errorScrollRef" class="log-list error-scroll">
+          <div
+            v-for="line in errorLogs"
+            :key="line.id"
+            class="log-line"
+            :class="`log-${line.level}`"
+          >
+            {{ line.text }}
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -106,178 +161,259 @@ const emptyHint = computed(() =>
 .log-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   background: var(--bg);
-  overflow: hidden;
 }
+
 .log-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 12px 0 0;
-  background: var(--panel);
+  gap: 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  background: var(--panel);
 }
-.log-tabs {
+
+.tabs {
   display: flex;
+  gap: 8px;
 }
-.log-tab {
-  padding: 13px 24px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  transition:
-    color 0.2s,
-    background 0.2s;
-  position: relative;
-}
-.log-tab:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.03);
-}
-.log-tab.active.site-danbooru {
-  color: var(--accent-d);
-  border-color: var(--accent-d);
-}
-.log-tab.active.site-yande {
-  color: var(--accent-y);
-  border-color: var(--accent-y);
-}
-.tab-badge {
-  display: none;
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent-ok);
-  box-shadow: 0 0 5px var(--accent-ok);
-  animation: pulse 1.2s infinite;
-}
-.log-tab.has-task .tab-badge {
-  display: block;
-}
-.log-tab.task-paused .tab-badge {
-  background: var(--accent-pause);
-  box-shadow: 0 0 5px var(--accent-pause);
-  animation: none;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(1.3);
-  }
-}
-.status-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.status {
-  font-size: 12px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-.status.status-running .status-dot {
-  background: var(--accent-ok);
-  box-shadow: 0 0 5px var(--accent-ok);
-  animation: pulse 1.2s infinite;
-}
-.status.status-paused .status-dot {
-  background: var(--accent-pause);
-}
-.status.status-stopping .status-dot {
-  background: var(--accent-warn);
-  animation: pulse 0.8s infinite;
-}
-.status.status-done .status-dot {
-  background: var(--accent-ok);
-}
-.status.status-stopped .status-dot {
-  background: var(--text-muted);
-}
-.status.status-error .status-dot {
-  background: var(--accent-err);
-}
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  background: transparent;
+
+.tab-btn {
   border: 1px solid var(--border);
+  background: var(--card);
   color: var(--text-muted);
-  padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: 999px;
+  padding: 7px 14px;
   cursor: pointer;
   font-size: 12px;
-  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  font-weight: 600;
 }
-.action-btn:hover {
+
+.tab-btn.active {
   color: var(--text);
   border-color: var(--accent);
-  background: rgba(255,255,255,0.04);
 }
-.log-view {
-  flex: 1;
-  padding: 14px 18px;
-  font-family: 'Consolas', 'Menlo', 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.55;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  background: var(--bg);
-}
-.log-empty {
-  color: var(--text-muted);
-  text-align: center;
-  padding: 40px 0;
+
+.header-actions {
   display: flex;
-  flex-direction: column;
   align-items: center;
   gap: 8px;
 }
-.log-empty .icon {
-  font-size: 28px;
-  opacity: 0.4;
-}
-.log-line {
-  display: block;
-  color: var(--text);
-}
-.log-line.log-info {
-  color: #c8d1e0;
-}
-.log-line.log-debug {
+
+.status-pill {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: var(--card);
   color: var(--text-muted);
-  opacity: 0.8;
+  border: 1px solid var(--border);
 }
-.log-line.log-warn {
+
+.status-running {
+  color: var(--accent-ok);
+}
+
+.status-paused {
+  color: var(--accent-pause);
+}
+
+.status-stopping {
   color: var(--accent-warn);
 }
-.log-line.log-error {
+
+.status-error {
   color: var(--accent-err);
 }
-.log-line.log-sys {
+
+.tool-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tool-btn.warn {
+  color: var(--accent-warn);
+}
+
+.log-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.summary-card,
+.progress-section,
+.log-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.summary-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.summary-row:last-child {
+  margin-bottom: 0;
+}
+
+.summary-label {
+  flex: 0 0 160px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.summary-value {
+  color: var(--text);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.progress-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+
+.prepare-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.section-title,
+.section-toggle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.section-toggle {
+  width: auto;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.scroll-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: background 0.18s, color 0.18s;
+}
+
+.scroll-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.empty-box {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.runtime-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.error-scroll {
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.runtime-scroll::-webkit-scrollbar,
+.error-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.runtime-scroll::-webkit-scrollbar-thumb,
+.error-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.runtime-scroll::-webkit-scrollbar-thumb:hover,
+.error-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+.log-line {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-sys {
   color: var(--accent);
-  font-weight: 600;
+}
+
+.log-debug {
+  color: var(--text-muted);
+}
+
+.log-warn {
+  color: var(--accent-warn);
+}
+
+.log-error {
+  color: var(--accent-err);
+}
+
+.error-section {
+  border-color: rgba(245, 108, 108, 0.35);
 }
 </style>

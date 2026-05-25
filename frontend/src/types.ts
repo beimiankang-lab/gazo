@@ -25,16 +25,34 @@ export interface RecordsResponse {
 export interface StartPayload {
   site: Site;
   query: string;
+  raw_query?: string;
   output_dir: string;
+  download_concurrency?: number;
   include_deleted?: boolean;
   template_preset?: string;
   template_custom?: string;
+  path_template?: string;
+  file_template?: string;
+  max_posts?: number | null;
+  ratings?: string[];
   filters?: {
     allow_image: boolean;
     allow_animated: boolean;
     allow_video: boolean;
     max_size_mb: number | null;
   };
+}
+
+export interface ProgressData {
+  current: number;
+  total: number;
+}
+
+export interface FailedItem {
+  post_id: number;
+  file_url: string;
+  filepath: string;
+  error: string;
 }
 
 export interface AppConfig {

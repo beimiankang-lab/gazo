@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -32,6 +32,11 @@ class PostCtx:
     characters: list[str]
     rating: str              # "s" / "q" / "e"，未知时为 ""
     ext: str                 # 无前导点
+    # 新增可选字段：date(YYYY-MM-DD), md5, copyrights
+    date: str = ""
+    md5: str = ""
+    copyrights: list[str] = field(default_factory=list)
+    score: int = 0
 
     @property
     def artist_name(self) -> str:
@@ -42,6 +47,12 @@ class PostCtx:
         if not self.characters:
             return ""
         return sanitize_segment("&".join(self.characters), "")
+
+    @property
+    def copyright_name(self) -> str:
+        if not self.copyrights:
+            return ""
+        return sanitize_segment("&".join(self.copyrights), "")
 
 
 # ── 预设模板 ─────────────────────────────────────────────────────────────────
@@ -55,14 +66,35 @@ PRESETS: dict[str, tuple[str, str]] = {
     "flat":     ("",                        "{site}_{query}_{id}.{ext}"),
 }
 
-_VALID_PLACEHOLDERS = {"id", "query", "artist", "character", "index", "ext", "site", "rating"}
+# 所有合法占位符（用于校验和前端展示）
+PLACEHOLDERS = ["id", "query", "artist", "character", "copyright",
+                "index", "ext", "site", "rating", "date", "md5", "score"]
+_VALID_PLACEHOLDERS = set(PLACEHOLDERS)
 
 
-def _validate_custom(template: str) -> None:
-    if "{ext}" not in template:
-        raise ValueError("自定义模板必须包含 {ext} 占位符")
-    if "{id}" not in template and "{index}" not in template:
-        raise ValueError("自定义模板必须包含 {id} 或 {index} 之一，避免同名覆盖")
+def _build_format_dict(ctx: PostCtx, index: int) -> dict:
+    return dict(
+        id=ctx.post_id,
+        query=sanitize_segment(ctx.query),
+        artist=ctx.artist_name,
+        character=ctx.character_name,
+        copyright=ctx.copyright_name,
+        index=index,
+        ext=ctx.ext,
+        site=ctx.site,
+        rating=ctx.rating or "u",
+        date=ctx.date or "unknown_date",
+        md5=ctx.md5 or "nomd5",
+        score=ctx.score,
+    )
+
+
+def _validate_template(template: str, *, require_ext: bool = False, require_unique: bool = False) -> None:
+    """通用占位符校验。"""
+    if require_ext and "{ext}" not in template:
+        raise ValueError("文件名模板必须包含 {ext} 占位符")
+    if require_unique and "{id}" not in template and "{index}" not in template and "{md5}" not in template:
+        raise ValueError("文件名模板必须包含 {id}、{index} 或 {md5} 之一，避免同名覆盖")
     for match in re.finditer(r"\{([a-zA-Z_]+)(?::[^}]*)?\}", template):
         name = match.group(1)
         if name not in _VALID_PLACEHOLDERS:
@@ -79,19 +111,12 @@ def render_path(
     """
     根据预设或自定义模板返回最终的完整文件路径。
     root 是用户选择的保存目录，即模板的起点。
+    保留旧的单一 custom_template 入口以保持向后兼容。
     """
     if preset == "custom":
-        _validate_custom(custom_template)
-        rendered = custom_template.format(
-            id=ctx.post_id,
-            query=sanitize_segment(ctx.query),
-            artist=ctx.artist_name,
-            character=ctx.character_name,
-            index=index,
-            ext=ctx.ext,
-            site=ctx.site,
-            rating=ctx.rating or "u",
-        )
+        _validate_template(custom_template, require_ext=True, require_unique=True)
+        fmt = _build_format_dict(ctx, index)
+        rendered = custom_template.format(**fmt)
         parts = [sanitize_segment(p, "_") for p in rendered.replace("\\", "/").split("/") if p]
         return root.joinpath(*parts)
 
@@ -99,18 +124,33 @@ def render_path(
         preset = "default"
     dir_tpl, file_tpl = PRESETS[preset]
 
-    fmt = dict(
-        id=ctx.post_id,
-        query=sanitize_segment(ctx.query),
-        artist=ctx.artist_name,
-        character=ctx.character_name,
-        index=index,
-        ext=ctx.ext,
-        site=ctx.site,
-        rating=ctx.rating or "u",
-    )
+    fmt = _build_format_dict(ctx, index)
     dir_parts = [sanitize_segment(p, "_") for p in dir_tpl.format(**fmt).split("/") if p]
     filename = sanitize_segment(file_tpl.format(**fmt), "untitled")
+    return root.joinpath(*dir_parts, filename)
+
+
+def render_split_path(
+    path_template: str,
+    file_template: str,
+    ctx: PostCtx,
+    index: int,
+    root: Path,
+) -> Path:
+    """
+    新版渲染：保存子目录和文件名分开两个模板。
+    path_template 可以为空（直接放在 root 下）。
+    """
+    _validate_template(file_template, require_ext=True, require_unique=True)
+    if path_template:
+        _validate_template(path_template)
+
+    fmt = _build_format_dict(ctx, index)
+    dir_parts: list[str] = []
+    if path_template:
+        rendered_dir = path_template.format(**fmt).replace("\\", "/")
+        dir_parts = [sanitize_segment(p, "_") for p in rendered_dir.split("/") if p]
+    filename = sanitize_segment(file_template.format(**fmt), "untitled")
     return root.joinpath(*dir_parts, filename)
 
 

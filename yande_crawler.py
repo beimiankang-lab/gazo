@@ -9,9 +9,11 @@ import re
 import time
 import json
 import logging
+import threading
 import requests
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from download_runtime import AdaptiveConcurrency, wait_for_resume
 from naming import PostCtx, Filters, render_path
 
 # ── 站点基础配置 ──────────────────────────────────────────────────────────────
@@ -26,6 +28,22 @@ TAG_TYPE_ARTIST = 1     # 作者
 TAG_TYPE_COPYRIGHT = 3  # 版权/作品名
 TAG_TYPE_CHARACTER = 4  # 角色
 TAG_TYPE_CIRCLE = 5     # 社团
+
+# ── 全局 Session ────────────────────────────────────────────────────────────────
+
+def _create_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(HEADERS)
+    return s
+
+_session: requests.Session | None = None
+
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = _create_session()
+    return _session
+
 
 # 全局标签类型缓存，避免重复查询同一标签
 _tag_type_cache: dict[str, int] = {}
@@ -135,42 +153,94 @@ def fetch_posts_page(query: str, page: int, limit: int = 100) -> list[dict]:
     """
     url = f"{BASE_URL}/post.json"
     params = {"tags": query, "page": page, "limit": limit}
-    resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+    resp = _get_session().get(url, params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None) -> list[dict]:
-    """
-    分页获取所有搜索结果。
-    log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
-    pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
-    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
-    """
-    all_posts = []
+def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
+                             max_posts: int | None) -> list[dict]:
+    """分页获取单个 query 的所有结果（内部辅助函数）。"""
+    all_posts: list[dict] = []
     page = 1
-    log_fn(f"正在搜索: {query}")
     while True:
-        # 中止优先于暂停：中止时直接退出，不等暂停解除
         if stop_event is not None and stop_event.is_set():
-            log_fn("收到中止信号，停止搜索")
             return all_posts
-        # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
-        if pause_event is not None:
-            pause_event.wait()
+        if pause_event is not None and not wait_for_resume(pause_event, stop_event):
+            return all_posts
 
         log_fn(f"  获取第 {page} 页...")
         posts = fetch_posts_page(query, page)
         if not posts:
             log_fn("无更多结果")
             break
+
+        if max_posts is not None:
+            remain = max_posts - len(all_posts)
+            if remain <= 0:
+                break
+            if len(posts) > remain:
+                posts = posts[:remain]
+
         log_fn(f"  获取到 {len(posts)} 条")
         all_posts.extend(posts)
-        # 返回条数不足一页说明已到末尾
+
+        if max_posts is not None and len(all_posts) >= max_posts:
+            break
+
         if len(posts) < 100:
             break
         page += 1
-        time.sleep(0.5)   # 遵守 API 速率限制
+        time.sleep(0.2)
+    return all_posts
+
+
+def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None,
+                    max_posts: int | None = None,
+                    ratings: list[str] | None = None) -> list[dict]:
+    """
+    分页获取所有搜索结果。
+    max_posts: 限制返回的帖子总数，None 表示不限制。
+    ratings: Yande.re 评级列表。多个评级时分次获取再合并去重（API 不支持逗号分隔多评级）。
+    log_fn: 日志输出函数。
+    pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
+    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
+    """
+    log_fn("正在准备搜索任务...")
+    log_fn(f"搜索词: {query}")
+    if max_posts is not None and max_posts > 0:
+        log_fn(f"已开启下载上限，本次最多处理 {max_posts} 张")
+
+    # Yande.re API 不支持 rating:q,s 逗号分隔多评级 → 分次获取再合并
+    if ratings and len(ratings) > 1:
+        log_fn(f"评级分次获取: {', '.join(ratings)}")
+        seen_ids: set[int] = set()
+        all_posts: list[dict] = []
+
+        for rating in ratings:
+            if stop_event is not None and stop_event.is_set():
+                break
+            rating_query = f"{query} rating:{rating}"
+            log_fn(f"  → 获取 rating:{rating} 结果...")
+            posts = _fetch_all_posts_single(rating_query, log_fn, pause_event, stop_event, max_posts)
+            new_posts = [p for p in posts if p["id"] not in seen_ids]
+            for p in new_posts:
+                seen_ids.add(p["id"])
+            log_fn(f"  rating:{rating} 获取 {len(posts)} 张，去重后新增 {len(new_posts)} 张")
+            all_posts.extend(new_posts)
+
+        # 按 id 倒序（Yande.re 默认展示顺序）
+        all_posts.sort(key=lambda p: p["id"], reverse=True)
+
+        # max_posts 在合并后截断
+        if max_posts is not None and max_posts > 0 and len(all_posts) > max_posts:
+            all_posts = all_posts[:max_posts]
+
+        log_fn(f"合并去重后共 {len(all_posts)} 张图片")
+        return all_posts
+
+    # 单评级时 buildRatingFragment 已嵌入 query，无需重复拼接
+    all_posts = _fetch_all_posts_single(query, log_fn, pause_event, stop_event, max_posts)
     log_fn(f"共找到 {len(all_posts)} 张图片")
     return all_posts
 
@@ -185,7 +255,7 @@ def _fetch_single_tag_type(tag: str) -> tuple[str, int]:
     try:
         url = f"{BASE_URL}/tag.json"
         params = {"name": tag, "limit": 1}
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=15)
+        resp = _get_session().get(url, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         # 精确匹配标签名，避免前缀误匹配
@@ -218,7 +288,7 @@ def fetch_tag_types_batch(tags: list[str]) -> dict[str, int]:
         try:
             url = f"{BASE_URL}/tag.json"
             params = [("name[]", t) for t in batch] + [("limit", str(batch_size))]
-            resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+            resp = _get_session().get(url, params=params, timeout=30)
             resp.raise_for_status()
             data = resp.json()
             found = {item["name"] for item in data}
@@ -244,18 +314,31 @@ def fetch_tag_types_batch(tags: list[str]) -> dict[str, int]:
     return {t: _tag_type_cache.get(t, TAG_TYPE_GENERAL) for t in tags}
 
 
-def classify_tags(tags_str: str) -> tuple[list[str], list[str]]:
+def classify_tags(tags_str: str) -> tuple[list[str], list[str], list[str]]:
     """
-    将帖子的 tags 字符串分类为 (artist_tags, character_tags)。
+    将帖子的 tags 字符串分类为 (artists, characters, copyrights)。
     通过查询 yande.re 标签类型 API 判断每个标签所属类型。
     """
     tags = tags_str.strip().split()
     if not tags:
-        return [], []
+        return [], [], []
     type_map = fetch_tag_types_batch(tags)
     artists = [t for t in tags if type_map.get(t) == TAG_TYPE_ARTIST]
     characters = [t for t in tags if type_map.get(t) == TAG_TYPE_CHARACTER]
-    return artists, characters
+    copyrights = [t for t in tags if type_map.get(t) == TAG_TYPE_COPYRIGHT]
+    return artists, characters, copyrights
+
+
+def _post_date(post: dict) -> str:
+    """从 yande.re 的 created_at（unix 时间戳）取 YYYY-MM-DD"""
+    ts = post.get("created_at")
+    if not ts:
+        return ""
+    try:
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return ""
 
 
 # ── 文件命名 ──────────────────────────────────────────────────────────────────
@@ -297,142 +380,286 @@ def get_next_index(folder_path: Path) -> int:
     return len(list(folder_path.iterdir())) + 1
 
 
-# ── 下载 ──────────────────────────────────────────────────────────────────────
-
 def download_image(url: str, filepath: Path, logger: logging.Logger,
-                   retries: int = 3) -> bool:
+                   pause_event=None, stop_event=None,
+                   timeout: float = 120) -> bool:
     """
-    下载单张图片到指定路径，失败时自动重试。
-    返回 True 表示成功，False 表示彻底失败。
+    下载单张图片到指定路径，只尝试一次。
+    返回 True 表示成功，False 表示失败。
     """
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.get(url, headers=HEADERS, timeout=60, stream=True)
-            resp.raise_for_status()
-            # 确保父目录存在
-            filepath.parent.mkdir(parents=True, exist_ok=True)
-            # 分块写入，避免大文件占用过多内存
-            with open(filepath, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=8192):
+    if stop_event is not None and stop_event.is_set():
+        return False
+    if pause_event is not None and not pause_event.is_set():
+        if not wait_for_resume(pause_event, stop_event):
+            return False
+
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=timeout, stream=True)
+        resp.raise_for_status()
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if stop_event is not None and stop_event.is_set():
+                    return False
+                if pause_event is not None and not pause_event.is_set():
+                    if not wait_for_resume(pause_event, stop_event):
+                        return False
+                if chunk:
                     f.write(chunk)
-            return True
-        except Exception as e:
-            if attempt < retries:
-                logger.debug(f"重试 {attempt}/{retries} — {filepath.name}: {e}")
-                time.sleep(1)
-            else:
-                logger.error(f"下载失败 — {filepath.name} | URL: {url} | 原因: {e}")
-    return False
+        return True
+    except Exception as e:
+        logger.error(f"下载失败 — {filepath.name} | URL: {url} | 原因: {e}")
+        return False
 
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 
 def process_posts(posts: list[dict], query: str, output_dir: Path,
+                  record_query: str | None = None,
                   extra_handler: logging.Handler | None = None,
                   pause_event=None, stop_event=None,
                   template_preset: str = "default",
                   template_custom: str = "",
-                  filters=None) -> None:
+                  path_template: str = "",
+                  file_template: str = "",
+                  filters=None,
+                  on_progress=None,
+                  on_fail=None,
+                  download_concurrency: int = 4) -> list[dict]:
     """
-    处理帖子列表：跳过已下载、查询标签类型、命名、下载图片并更新记录。
+    处理帖子列表：跳过已下载、查询标签类型、命名、顺序下载图片并更新记录。
     extra_handler: 可选，前端实时日志 Handler。
     pause_event: threading.Event，被清除时在每张图片下载前阻塞（暂停）。
     stop_event: threading.Event，被 set 时在每张图片下载前退出（中止）。
     """
+    from naming import render_split_path
+
+    use_split = bool(file_template)
     logger = setup_logger(output_dir, extra_handler)
-    logger.info(f"开始下载，搜索词: {query}，共 {len(posts)} 张")
+    effective_record_query = (record_query or query).strip() or query
+    logger.info(f"开始下载，搜索词: {query}")
+    logger.info(f"下载目录: {output_dir}")
+    logger.info(f"待处理图片: {len(posts)} 张")
 
     record_path = output_dir / RECORD_FILENAME
-    downloaded = load_downloaded(record_path, query)  # 读取历史下载记录
+    downloaded = load_downloaded(record_path, effective_record_query)
 
-    # 预先收集所有标签，一次性批量查询类型，减少后续每帖的延迟
     all_tags: set[str] = set()
     for post in posts:
         all_tags.update(post.get("tags", "").strip().split())
     if all_tags:
-        print(f"正在查询 {len(all_tags)} 个标签的类型...")
+        logger.info(f"正在获取标签信息，共 {len(all_tags)} 个标签")
         fetch_tag_types_batch(list(all_tags))
-        print("标签类型查询完成\n")
+        logger.info("标签信息获取完成")
 
-    # 各作者文件夹当前序号缓存，避免每次都重新扫描磁盘
     folder_counters: dict[str, int] = {}
-
+    failed_items: list[dict] = []
+    controller = AdaptiveConcurrency(initial=max(1, download_concurrency))
+    counters_lock = threading.Lock()
+    record_lock = threading.Lock()
+    folder_lock = threading.Lock()
+    active_lock = threading.Lock()
+    active_downloads = 0
     total = len(posts)
-    for i, post in enumerate(posts, 1):
-        if stop_event is not None and stop_event.is_set():
-            logger.info("收到中止信号，停止下载")
-            break
+    success_count = 0
+    skip_count = 0
+    completed = 0
 
-        post_id = post.get("id")
-        file_url = post.get("file_url", "")
-        file_ext = post.get("file_ext", "jpg")
-        file_size = post.get("file_size")
-        tags_str = post.get("tags", "")
+    def _stopped() -> bool:
+        return stop_event is not None and stop_event.is_set()
 
-        if not file_url:
-            logger.warning(f"[{i}/{total}] 帖子 {post_id}: 无下载链接，跳过")
-            continue
+    def _resolve(ctx: PostCtx, idx: int) -> Path:
+        if use_split:
+            return render_split_path(path_template, file_template, ctx, idx, output_dir)
+        return render_path(template_preset, template_custom, ctx, idx, output_dir)
 
-        if post_id in downloaded:
-            logger.debug(f"[{i}/{total}] 已下载，跳过 (id={post_id})")
-            continue
+    def emit_progress():
+        if on_progress:
+            try:
+                on_progress(completed, total)
+            except Exception:
+                pass
 
-        if filters is not None:
-            reason = filters.rejects(file_ext, file_size)
-            if reason:
-                logger.info(f"[{i}/{total}] {reason}")
+    def current_active() -> int:
+        with active_lock:
+            return active_downloads
+
+    def change_active(delta: int) -> int:
+        nonlocal active_downloads
+        with active_lock:
+            active_downloads += delta
+            return active_downloads
+
+    def before_step() -> bool:
+        if _stopped():
+            return False
+        if pause_event is not None and not wait_for_resume(pause_event, stop_event):
+            return False
+        return not _stopped()
+
+    def process_one(post: dict, prefix: str) -> dict:
+        nonlocal completed, success_count, skip_count
+        change_active(1)
+        try:
+            post_id = post.get("id")
+            file_url = post.get("file_url", "")
+            file_ext = post.get("file_ext", "jpg")
+            file_size = post.get("file_size")
+            tags_str = post.get("tags", "")
+
+            if not file_url:
+                logger.warning(f"{prefix} 帖子 {post_id}: 无下载链接，跳过")
+                with counters_lock:
+                    skip_count += 1
+                    completed += 1
+                    emit_progress()
+                return {"kind": "skip"}
+
+            if post_id in downloaded:
+                logger.debug(f"{prefix} 已下载，跳过 (id={post_id})")
+                with counters_lock:
+                    skip_count += 1
+                    completed += 1
+                    emit_progress()
+                return {"kind": "skip"}
+
+            if filters is not None:
+                reason = filters.rejects(file_ext, file_size)
+                if reason:
+                    logger.info(f"{prefix} {reason}")
+                    with counters_lock:
+                        skip_count += 1
+                        completed += 1
+                        emit_progress()
+                    return {"kind": "skip"}
+
+            artists, characters, copyrights = classify_tags(tags_str)
+            rating = post.get("rating", "")
+
+            ctx = PostCtx(
+                site="yande",
+                post_id=post_id,
+                query=query,
+                artists=artists,
+                characters=characters,
+                rating=rating,
+                ext=file_ext,
+                date=_post_date(post),
+                md5=post.get("md5", "") or "",
+                copyrights=copyrights,
+                score=int(post.get("score", 0) or 0),
+            )
+
+            with folder_lock:
+                folder_key = ctx.artist_name
+                if folder_key not in folder_counters:
+                    probe = _resolve(ctx, 1)
+                    folder_counters[folder_key] = get_next_index(probe.parent)
+                idx = folder_counters[folder_key]
+                filepath = _resolve(ctx, idx)
+                folder_counters[folder_key] += 1
+
+            logger.info(f"{prefix} 下载: {filepath.name}")
+            success = download_image(file_url, filepath, logger,
+                                     pause_event=pause_event, stop_event=stop_event)
+
+            if _stopped():
+                return {"kind": "stopped"}
+
+            with counters_lock:
+                completed += 1
+                emit_progress()
+                if success:
+                    success_count += 1
+                else:
+                    pass  # fail_count tracked via failed_items
+
+            if success:
+                with record_lock:
+                    downloaded.add(post_id)
+                    save_downloaded(record_path, effective_record_query, downloaded)
+                logger.debug(f"{prefix} 成功: {filepath.name}")
+                return {"kind": "success"}
+
+            item = {
+                "post_id": post_id,
+                "file_url": file_url,
+                "filepath": str(filepath),
+                "error": "download failed",
+            }
+            with counters_lock:
+                failed_items.append(item)
+            if on_fail:
+                try:
+                    on_fail(post_id, "download failed")
+                except Exception:
+                    pass
+            return {"kind": "fail"}
+        finally:
+            change_active(-1)
+
+    logger.info(f"正在启动 {controller.target()} 路并发下载")
+    index = 0
+    active_futures: dict = {}
+
+    with ThreadPoolExecutor(max_workers=max(1, download_concurrency)) as executor:
+        while True:
+            if _stopped():
+                logger.info(f"收到中止信号，停止投放新任务；当前活动下载 {current_active()} 个")
+                break
+            if pause_event is not None and not pause_event.is_set():
+                logger.info(f"已暂停，等待 {current_active()} 个活动下载进入暂停点")
+                if not wait_for_resume(pause_event, stop_event):
+                    break
+                logger.info("已继续，恢复投放下载任务")
+
+            target = controller.target()
+            while index < total and len(active_futures) < target:
+                if not before_step():
+                    break
+                post = posts[index]
+                prefix = f"[{index + 1}/{total}]"
+                future = executor.submit(process_one, post, prefix)
+                active_futures[future] = prefix
+                index += 1
+
+            if not active_futures:
+                if index >= total:
+                    break
                 continue
 
-        artists, characters = classify_tags(tags_str)
-        rating = post.get("rating", "")
+            done, _ = wait(set(active_futures.keys()), timeout=0.2, return_when=FIRST_COMPLETED)
+            if not done:
+                continue
+            for future in done:
+                active_futures.pop(future)
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    logger.error(f"任务异常: {exc}")
+                    with counters_lock:
+                        completed += 1
+                        emit_progress()
+                    continue
+                if result.get("kind") == "stopped":
+                    logger.info("下载已中止")
+                    # cancel remaining to avoid errors on shutdown
+                    for f in active_futures:
+                        f.cancel()
+                    break
 
-        ctx = PostCtx(
-            site="yande",
-            post_id=post_id,
-            query=query,
-            artists=artists,
-            characters=characters,
-            rating=rating,
-            ext=file_ext,
-        )
-        folder_key = ctx.artist_name
-        if folder_key not in folder_counters:
-            probe = render_path(template_preset, template_custom, ctx, 1, output_dir)
-            folder_counters[folder_key] = get_next_index(probe.parent)
-
-        index = folder_counters[folder_key]
-        filepath = render_path(template_preset, template_custom, ctx, index, output_dir)
-
-        logger.info(f"[{i}/{total}] 下载: {filepath.name}")
-        if stop_event is not None and stop_event.is_set():
-            logger.info("收到中止信号，停止下载")
-            break
-        if pause_event is not None:
-            pause_event.wait()
-        if stop_event is not None and stop_event.is_set():
-            logger.info("收到中止信号，停止下载")
-            break
-
-        success = download_image(file_url, filepath, logger)
-        if success:
-            folder_counters[folder_key] += 1
-            downloaded.add(post_id)
-            # 每次成功后立即持久化，防止中途中断丢失进度
-            save_downloaded(record_path, query, downloaded)
-            logger.debug(f"[{i}/{total}] 成功: {filepath.name}")
-
-        time.sleep(0.5)   # 每张图片下载间隔，避免请求过于频繁
-
-    failed = total - len(downloaded)
-    if stop_event is not None and stop_event.is_set():
-        logger.info(f"任务已中止。成功: {len(downloaded)}，失败/跳过: {failed}")
+    if _stopped():
+        logger.info(f"任务已中止。成功: {success_count}，跳过: {skip_count}，失败: {len(failed_items)}")
     else:
-        logger.info(f"下载完成。成功: {len(downloaded)}，失败/跳过: {failed}")
+        logger.info(f"下载完成。成功: {success_count}，跳过: {skip_count}，失败: {len(failed_items)}")
+    return failed_items
 
 
 def run(query: str, output_dir: Path,
+        record_query: str | None = None,
         extra_handler: logging.Handler | None = None,
-        pause_event=None, stop_event=None) -> None:
+        pause_event=None, stop_event=None,
+        download_concurrency: int = 4) -> None:
     """
     供外部（如 Flask app）直接调用的入口函数。
     extra_handler: 可选，用于将日志实时推送到前端。
@@ -452,8 +679,9 @@ def run(query: str, output_dir: Path,
         return
     if stop_event is not None and stop_event.is_set():
         return
-    process_posts(posts, query, output_dir, extra_handler,
-                  pause_event=pause_event, stop_event=stop_event)
+    process_posts(posts, query, output_dir, record_query, extra_handler,
+                  pause_event=pause_event, stop_event=stop_event,
+                  download_concurrency=download_concurrency)
 
 
 def main():

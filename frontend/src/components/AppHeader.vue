@@ -4,21 +4,26 @@ import { useI18n } from 'vue-i18n';
 const logoUrl = '/logo/logo.png';
 const { t } = useI18n();
 
-defineEmits<{ 'open-help': []; 'open-settings': [] }>();
+defineEmits<{
+  'open-help': [];
+  'open-records': [];
+  'open-settings': [];
+}>();
 </script>
 
 <template>
   <header class="app-header">
     <div class="logo">
-      <img :src="logoUrl" alt="Gazō" />
+      <img :src="logoUrl" alt="Gazo" />
     </div>
     <h1>
-      Gazō
+      Gazo
       <span class="subtitle">{{ t('header.subtitle') }}</span>
     </h1>
     <div class="flex-spacer" />
-    <button class="help-btn" @click="$emit('open-help')">{{ t('header.help') }}</button>
-    <button class="icon-btn gear" :title="t('header.settings')" @click="$emit('open-settings')">⚙</button>
+    <button class="pill-btn" @click="$emit('open-help')">{{ t('header.help') }}</button>
+    <button class="pill-btn" @click="$emit('open-records')">{{ t('records.title') }}</button>
+    <button class="icon-btn" :title="t('header.settings')" @click="$emit('open-settings')">S</button>
     <span class="badge">{{ t('header.badge') }}</span>
   </header>
 </template>
@@ -36,6 +41,7 @@ defineEmits<{ 'open-help': []; 'open-settings': [] }>();
   top: 0;
   z-index: 100;
 }
+
 .logo {
   width: 34px;
   height: 34px;
@@ -47,27 +53,32 @@ defineEmits<{ 'open-help': []; 'open-settings': [] }>();
   flex-shrink: 0;
   background: var(--card);
 }
+
 .logo img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
+
 h1 {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.3px;
 }
+
 .subtitle {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 400;
   margin-left: 6px;
 }
+
 .flex-spacer {
   flex: 1;
 }
-.help-btn {
+
+.pill-btn {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
@@ -80,10 +91,12 @@ h1 {
     color 0.2s,
     border-color 0.2s;
 }
-.help-btn:hover {
+
+.pill-btn:hover {
   color: var(--text);
   border-color: var(--text-muted);
 }
+
 .icon-btn {
   background: var(--card);
   border: 1px solid var(--border);
@@ -92,7 +105,8 @@ h1 {
   height: 32px;
   border-radius: 50%;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 12px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -101,11 +115,13 @@ h1 {
     border-color 0.2s,
     transform 0.3s;
 }
+
 .icon-btn:hover {
   color: var(--text);
   border-color: var(--accent);
-  transform: rotate(60deg);
+  transform: rotate(25deg);
 }
+
 .badge {
   font-size: 11px;
   color: var(--text-muted);

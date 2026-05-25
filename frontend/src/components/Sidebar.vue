@@ -1,25 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { Site } from '@/types';
 import { useTasks } from '@/useTasks';
-import { buildRatingFragment } from '@/useSettings';
+import { buildRatingFragment, buildTagListFragment, getSiteSettings, getRatingPicks } from '@/useSettings';
 import SiteForm from './SiteForm.vue';
-import RecordsList from './RecordsList.vue';
 
 const props = defineProps<{
   currentSite: Site;
-  defaultDir: string;
 }>();
 
-const emit = defineEmits<{ 'switch-site': [Site] }>();
+const emit = defineEmits<{
+  'switch-site': [Site];
+}>();
 
 const { t } = useI18n();
 const { state, start, togglePause, requestStop } = useTasks();
-
-const dDir = ref(props.defaultDir);
-const yDir = ref(props.defaultDir);
 
 const dFormRef = ref<InstanceType<typeof SiteForm> | null>(null);
 const yFormRef = ref<InstanceType<typeof SiteForm> | null>(null);
@@ -32,15 +29,10 @@ defineExpose({
   async triggerStop() {
     await handleStop(props.currentSite);
   },
-});
-
-watch(
-  () => props.defaultDir,
-  (val) => {
-    if (!dDir.value) dDir.value = val;
-    if (!yDir.value) yDir.value = val;
+  currentOutputDir() {
+    return getSiteSettings(props.currentSite).outputDir;
   },
-);
+});
 
 const activeForm = computed({
   get: () => props.currentSite,
@@ -48,25 +40,30 @@ const activeForm = computed({
 });
 
 function isActive(site: Site) {
-  const s = state[site].status;
-  return s === 'running' || s === 'paused' || s === 'stopping';
+  const status = state[site].status;
+  return status === 'running' || status === 'paused' || status === 'stopping';
 }
 
 function composeQuery(site: Site, userQuery: string): string {
   const rating = buildRatingFragment(site);
-  if (!rating) return userQuery;
-  return `${userQuery} ${rating}`.trim();
+  const tagList = buildTagListFragment(site);
+  const parts = [userQuery, rating, tagList].filter((text) => text && text.trim());
+  return parts.join(' ').trim();
 }
 
-async function handleStart(site: Site, payload: { query: string; outputDir: string; includeDeleted: boolean }) {
+async function handleStart(
+  site: Site,
+  payload: { query: string; includeDeleted: boolean; maxPosts: number | null },
+) {
   if (!payload.query) {
     ElMessage.warning(t('form.emptyTags'));
     return;
   }
   const finalQuery = composeQuery(site, payload.query);
   try {
-    await start(site, finalQuery, payload.outputDir, payload.includeDeleted);
-    recordsRef.value?.refresh();
+    const outputDir = getSiteSettings(site).outputDir || '';
+    const ratings = site === 'yande' ? getRatingPicks(site) : undefined;
+    await start(site, finalQuery, payload.query, outputDir, payload.includeDeleted, payload.maxPosts, ratings);
   } catch (e) {
     ElMessage.error(t('form.startFailed', { msg: (e as Error).message }));
   }
@@ -85,21 +82,6 @@ async function handleStop(site: Site) {
   }
   requestStop(site);
 }
-
-const recordsRef = ref<InstanceType<typeof RecordsList> | null>(null);
-
-watch(
-  () => state.danbooru.status,
-  (s) => {
-    if (s === 'done' || s === 'stopped' || s === 'error') recordsRef.value?.refresh();
-  },
-);
-watch(
-  () => state.yande.status,
-  (s) => {
-    if (s === 'done' || s === 'stopped' || s === 'error') recordsRef.value?.refresh();
-  },
-);
 </script>
 
 <template>
@@ -121,125 +103,142 @@ watch(
       </button>
     </div>
 
-    <SiteForm
-      v-show="activeForm === 'danbooru'"
-      ref="dFormRef"
-      site="danbooru"
-      v-model:output-dir="dDir"
-      :state="state.danbooru"
-      @start="(p) => handleStart('danbooru', p)"
-      @toggle-pause="togglePause('danbooru')"
-      @stop="handleStop('danbooru')"
-    />
-    <SiteForm
-      v-show="activeForm === 'yande'"
-      ref="yFormRef"
-      site="yande"
-      v-model:output-dir="yDir"
-      :state="state.yande"
-      @start="(p) => handleStart('yande', p)"
-      @toggle-pause="togglePause('yande')"
-      @stop="handleStop('yande')"
-    />
-
-    <div class="divider" />
-
-    <RecordsList ref="recordsRef" :output-dir="dDir || yDir" />
+    <div class="forms-scroll">
+      <SiteForm
+        v-show="activeForm === 'danbooru'"
+        ref="dFormRef"
+        site="danbooru"
+        :state="state.danbooru"
+        @start="(payload) => handleStart('danbooru', payload)"
+        @toggle-pause="togglePause('danbooru')"
+        @stop="handleStop('danbooru')"
+      />
+      <SiteForm
+        v-show="activeForm === 'yande'"
+        ref="yFormRef"
+        site="yande"
+        :state="state.yande"
+        @start="(payload) => handleStart('yande', payload)"
+        @toggle-pause="togglePause('yande')"
+        @stop="handleStop('yande')"
+      />
+    </div>
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  background: var(--panel);
-  border-right: 1px solid var(--border);
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, #fff 10%), var(--panel));
+  border-right: 1px solid var(--border);
 }
+
 .site-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+
 .site-tab {
-  padding: 14px 0;
-  text-align: center;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text-muted);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 15px 10px;
   border: none;
   border-bottom: 2px solid transparent;
   background: transparent;
-  user-select: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
   transition:
     color 0.2s,
-    background 0.2s;
-  position: relative;
+    background 0.2s,
+    border-color 0.2s;
 }
+
 .site-tab:hover {
   color: var(--text);
   background: rgba(255, 255, 255, 0.03);
 }
+
 .site-tab.active.site-danbooru {
   color: var(--accent-d);
   border-color: var(--accent-d);
-  background: rgba(124, 106, 255, 0.06);
+  background: rgba(124, 106, 255, 0.08);
 }
+
 .site-tab.active.site-yande {
   color: var(--accent-y);
   border-color: var(--accent-y);
-  background: rgba(255, 107, 138, 0.06);
+  background: rgba(255, 107, 138, 0.08);
 }
+
 .dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-right: 6px;
-  vertical-align: middle;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
+
 .site-danbooru .dot {
   background: var(--accent-d);
 }
+
 .site-yande .dot {
   background: var(--accent-y);
 }
+
 .running-badge {
-  display: none;
   position: absolute;
-  top: 6px;
-  right: 10px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent-ok);
-  box-shadow: 0 0 5px var(--accent-ok);
-  animation: pulse 1.2s infinite;
+  top: 9px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
 }
-.site-tab.has-task .running-badge {
-  display: block;
+
+.site-danbooru.has-task .running-badge {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--accent-d);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-d) 18%, transparent);
 }
-.site-tab.task-paused .running-badge {
-  background: var(--accent-pause);
-  box-shadow: 0 0 5px var(--accent-pause);
-  animation: none;
+
+.site-yande.has-task .running-badge {
+  opacity: 1;
+  transform: scale(1);
+  background: var(--accent-y);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-y) 18%, transparent);
 }
+
+.task-paused .running-badge {
+  animation: pulse 1.2s infinite alternate;
+}
+
+.forms-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 @keyframes pulse {
-  0%,
-  100% {
+  from {
+    opacity: 0.35;
+  }
+  to {
     opacity: 1;
-    transform: scale(1);
   }
-  50% {
-    opacity: 0.4;
-    transform: scale(1.3);
-  }
-}
-.divider {
-  height: 1px;
-  background: var(--border);
-  margin: 4px 0;
 }
 </style>

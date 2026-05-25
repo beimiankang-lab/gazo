@@ -1,27 +1,58 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import AppHeader from '@/components/AppHeader.vue';
 import Sidebar from '@/components/Sidebar.vue';
 import LogPanel from '@/components/LogPanel.vue';
 import HelpModal from '@/components/HelpModal.vue';
 import SettingsDrawer from '@/components/SettingsDrawer.vue';
-import { getConfig } from '@/api';
-import { useSettings } from '@/useSettings';
+import RecordsList from '@/components/RecordsList.vue';
+import { getConfig, sendHeartbeat } from '@/api';
+import { getSiteSettings, useSettings } from '@/useSettings';
+import { useTasks } from '@/useTasks';
 import type { Site } from '@/types';
 
 const currentSite = ref<Site>('danbooru');
 const currentLog = ref<Site>('danbooru');
 const helpOpen = ref(false);
 const settingsOpen = ref(false);
+const recordsOpen = ref(false);
+
 const settings = useSettings();
+const { reattachActiveTasks, state } = useTasks();
+
+let heartbeatTimer: number | null = null;
 
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null);
+const recordsRef = ref<InstanceType<typeof RecordsList> | null>(null);
 
-const activeDir = computed(() => settings.defaultDir);
+const activeDir = computed(() => settings.defaultDir || getSiteSettings(currentSite.value).outputDir);
+
+watch(
+  () => settings.defaultDir,
+  (value) => {
+    if (value) {
+      getSiteSettings('danbooru').outputDir = value;
+      getSiteSettings('yande').outputDir = value;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => [state.danbooru.status, state.yande.status],
+  () => {
+    recordsRef.value?.refresh();
+  },
+);
 
 function switchSite(site: Site) {
   currentSite.value = site;
   currentLog.value = site;
+}
+
+function switchLog(site: Site) {
+  currentLog.value = site;
+  currentSite.value = site;
 }
 
 function onKey(e: KeyboardEvent) {
@@ -50,29 +81,38 @@ onMounted(async () => {
   try {
     const cfg = await getConfig();
     if (!settings.defaultDir) settings.defaultDir = cfg.default_dir;
+    const resolvedDir = settings.defaultDir || cfg.default_dir;
+    getSiteSettings('danbooru').outputDir = resolvedDir;
+    getSiteSettings('yande').outputDir = resolvedDir;
   } catch {
-    // 后端不可用时让用户自己填
+    // Ignore config bootstrap errors when backend is unavailable.
   }
+
+  reattachActiveTasks();
+  sendHeartbeat();
+  heartbeatTimer = window.setInterval(sendHeartbeat, 5000);
 });
 
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKey);
+  if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer);
+});
 </script>
 
 <template>
   <div class="app-shell">
     <AppHeader
       @open-help="helpOpen = true"
+      @open-records="recordsOpen = true"
       @open-settings="settingsOpen = true"
     />
     <main class="layout">
-      <Sidebar
-        ref="sidebarRef"
-        :current-site="currentSite"
-        :default-dir="activeDir"
-        @switch-site="switchSite"
-      />
-      <LogPanel v-model:current-log="currentLog" />
+      <Sidebar ref="sidebarRef" :current-site="currentSite" @switch-site="switchSite" />
+      <LogPanel :current-log="currentLog" @update:current-log="switchLog" />
     </main>
+    <el-drawer v-model="recordsOpen" size="420px" :title="' '" class="records-drawer">
+      <RecordsList ref="recordsRef" :output-dir="activeDir" />
+    </el-drawer>
     <HelpModal v-model="helpOpen" />
     <SettingsDrawer v-model="settingsOpen" :current-dir="activeDir" />
   </div>
@@ -85,17 +125,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
   height: 100vh;
   overflow: hidden;
 }
+
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: minmax(360px, 420px) 1fr;
   height: calc(100vh - 56px);
   overflow: hidden;
 }
+
 @media (max-width: 680px) {
   .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(280px, 42vh);
   }
 }
 </style>

@@ -5,8 +5,10 @@ Flask 后端 —— 为前端界面提供 API 接口
 
 import json
 import logging
+import os
 import queue
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -74,6 +76,28 @@ _tasks_lock = threading.Lock()
 
 DEFAULT_DOWNLOAD_DIR = str(_BASE_DIR / "downloads")
 
+# 浏览器存活心跳
+_last_heartbeat = time.time()
+_heartbeat_lock = threading.Lock()
+_HEARTBEAT_TIMEOUT = 10  # 10 秒无心跳则认为所有浏览器已关闭，退出 exe
+
+
+def _watchdog():
+    """后台心跳看门狗：所有浏览器关闭后自动退出"""
+    while True:
+        time.sleep(1)
+        with _heartbeat_lock:
+            if time.time() - _last_heartbeat > _HEARTBEAT_TIMEOUT:
+                # 双保险：确认是打包成 exe 才真正退出（开发时不要自动退）
+                if getattr(_sys, 'frozen', False) or os.environ.get('GAZO_KILL_ON_EXIT'):
+                    os._exit(0)
+                # 开发模式下仅打日志不退出
+                print(f"[watchdog] {_HEARTBEAT_TIMEOUT}s 无浏览器心跳，打包版已退出，开发版忽略")
+                break
+
+
+threading.Thread(target=_watchdog, daemon=True).start()
+
 
 # ── 日志队列 Handler ──────────────────────────────────────────────────────────
 
@@ -107,11 +131,24 @@ def _task_log(task_id: str, msg: str):
         task["queue"].put(msg)
 
 
+def _wait_for_task_resume(task: dict) -> bool:
+    pause_event = task.get("pause_event")
+    stop_event = task.get("stop_event")
+    while pause_event is not None and not pause_event.is_set():
+        if stop_event is not None and stop_event.is_set():
+            return False
+        time.sleep(0.2)
+    return not (stop_event is not None and stop_event.is_set())
+
+
 # ── 爬虫任务线程 ──────────────────────────────────────────────────────────────
 
-def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: Path,
+def _run_danbooru(task_id: str, query: str, record_query: str, include_deleted: bool, output_dir: Path,
                   template_preset: str = "default", template_custom: str = "",
-                  filters_raw: dict | None = None):
+                  path_template: str = "", file_template: str = "",
+                  filters_raw: dict | None = None,
+                  max_posts: int | None = None,
+                  download_concurrency: int = 4):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -124,23 +161,40 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
     def log_fn(msg: str):
         _task_log(task_id, msg)
 
+    def _on_progress(current, total):
+        q = _tasks[task_id]["queue"]
+        _tasks[task_id]["progress"] = {"current": current, "total": total}
+        q.put({"type": "progress", "current": current, "total": total})
+
+    def _on_fail(post_id, error):
+        q = _tasks[task_id]["queue"]
+        q.put({"type": "fail", "post_id": post_id, "error": error})
+
     try:
         posts = danbooru.fetch_all_posts(query, include_deleted,
                                          log_fn=log_fn,
                                          pause_event=pause_event,
-                                         stop_event=stop_event)
+                                         stop_event=stop_event,
+                                         max_posts=max_posts)
         if stop_event.is_set():
             pass
         elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
-            danbooru.process_posts(posts, query, output_dir,
+            failed = danbooru.process_posts(posts, query, output_dir, record_query,
                                    extra_handler=handler,
                                    pause_event=pause_event,
                                    stop_event=stop_event,
                                    template_preset=template_preset,
                                    template_custom=template_custom,
-                                   filters=filters)
+                                   path_template=path_template,
+                                   file_template=file_template,
+                                   filters=filters,
+                                   on_progress=_on_progress,
+                                   on_fail=_on_fail,
+                                   download_concurrency=download_concurrency)
+            with _tasks_lock:
+                _tasks[task_id]["failed_posts"] = failed
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -151,9 +205,13 @@ def _run_danbooru(task_id: str, query: str, include_deleted: bool, output_dir: P
         _tasks[task_id]["queue"].put("__DONE__")
 
 
-def _run_yande(task_id: str, query: str, output_dir: Path,
+def _run_yande(task_id: str, query: str, record_query: str, output_dir: Path,
                template_preset: str = "default", template_custom: str = "",
-               filters_raw: dict | None = None):
+               path_template: str = "", file_template: str = "",
+               filters_raw: dict | None = None,
+               max_posts: int | None = None,
+               ratings: list[str] | None = None,
+               download_concurrency: int = 4):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -166,23 +224,41 @@ def _run_yande(task_id: str, query: str, output_dir: Path,
     def log_fn(msg: str):
         _task_log(task_id, msg)
 
+    def _on_progress(current, total):
+        q = _tasks[task_id]["queue"]
+        _tasks[task_id]["progress"] = {"current": current, "total": total}
+        q.put({"type": "progress", "current": current, "total": total})
+
+    def _on_fail(post_id, error):
+        q = _tasks[task_id]["queue"]
+        q.put({"type": "fail", "post_id": post_id, "error": error})
+
     try:
         posts = yande.fetch_all_posts(query,
                                       log_fn=log_fn,
                                       pause_event=pause_event,
-                                      stop_event=stop_event)
+                                      stop_event=stop_event,
+                                      max_posts=max_posts,
+                                      ratings=ratings)
         if stop_event.is_set():
             pass
         elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
-            yande.process_posts(posts, query, output_dir,
+            failed = yande.process_posts(posts, query, output_dir, record_query,
                                 extra_handler=handler,
                                 pause_event=pause_event,
                                 stop_event=stop_event,
                                 template_preset=template_preset,
                                 template_custom=template_custom,
-                                filters=filters)
+                                path_template=path_template,
+                                file_template=file_template,
+                                filters=filters,
+                                on_progress=_on_progress,
+                                on_fail=_on_fail,
+                                download_concurrency=download_concurrency)
+            with _tasks_lock:
+                _tasks[task_id]["failed_posts"] = failed
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -245,11 +321,32 @@ def api_start():
     data = request.get_json(force=True)
     site = data.get("site", "danbooru")
     query = (data.get("query") or "").strip()
+    raw_query = (data.get("raw_query") or query).strip() or query
     include_deleted = bool(data.get("include_deleted", False))
     output_dir = Path(data.get("output_dir") or DEFAULT_DOWNLOAD_DIR)
     template_preset = data.get("template_preset", "default")
     template_custom = data.get("template_custom", "")
+    path_template = data.get("path_template", "") or ""
+    file_template = data.get("file_template", "") or ""
     filters_raw = data.get("filters") or None
+    ratings: list[str] | None = data.get("ratings")  # Yande.re 多评级分次获取
+    raw_concurrency = data.get("download_concurrency", 4)
+    # max_posts: None / 0 / 负数都视为不限制
+    raw_max = data.get("max_posts")
+    try:
+        max_posts: int | None = int(raw_max) if raw_max not in (None, "", 0) else None
+        if max_posts is not None and max_posts <= 0:
+            max_posts = None
+    except (TypeError, ValueError):
+        max_posts = None
+
+    download_concurrency = 0
+    try:
+        download_concurrency = int(raw_concurrency)
+    except (TypeError, ValueError):
+        return jsonify({"error": "download_concurrency must be an integer"}), 400
+    if not 1 <= download_concurrency <= 8:
+        return jsonify({"error": "download_concurrency must be between 1 and 8"}), 400
 
     if not query:
         return jsonify({"error": "搜索词不能为空"}), 400
@@ -262,26 +359,40 @@ def api_start():
     stop_event = threading.Event()  # 默认未中止
 
     with _tasks_lock:
+        for existing in _tasks.values():
+            if existing["site"] == site and existing["status"] in ("running", "paused", "stopping"):
+                return jsonify({"error": f"{site} already has an active task"}), 409
         _tasks[task_id] = {
             "status": "running",
             "site": site,
             "query": query,
+            "raw_query": raw_query,
             "queue": queue.Queue(),
             "logs": [],
             "pause_event": pause_event,
             "stop_event": stop_event,
+            "progress": {"current": 0, "total": 0},
+            "failed_posts": [],
+            "output_dir": str(output_dir),
+            "download_concurrency": download_concurrency,
         }
 
     if site == "danbooru":
         t = threading.Thread(target=_run_danbooru,
-                             args=(task_id, query, include_deleted, output_dir,
-                                   template_preset, template_custom, filters_raw),
+                             args=(task_id, query, raw_query, include_deleted, output_dir,
+                                   template_preset, template_custom,
+                                   path_template, file_template, filters_raw,
+                                   max_posts, download_concurrency),
                              daemon=True)
     else:
         t = threading.Thread(target=_run_yande,
-                             args=(task_id, query, output_dir,
-                                   template_preset, template_custom, filters_raw),
+                             args=(task_id, query, raw_query, output_dir,
+                                   template_preset, template_custom,
+                                   path_template, file_template, filters_raw,
+                                   max_posts, ratings, download_concurrency),
                              daemon=True)
+
+    _task_log(task_id, f"下载并发数已设置为 {download_concurrency}")
 
     t.start()
     return jsonify({"task_id": task_id})
@@ -304,7 +415,7 @@ def api_logs(task_id: str):
         # 1. 先回放请求时已有的历史日志（跳过已读部分）
         with _tasks_lock:
             history = list(task["logs"][offset:])
-            already_done = task["status"] in ("done", "error")
+            already_done = task["status"] in ("done", "error", "stopped")
 
         for msg in history:
             yield f"data: {json.dumps({'log': msg})}\n\n"
@@ -325,9 +436,13 @@ def api_logs(task_id: str):
             if msg == "__DONE__":
                 with _tasks_lock:
                     final_status = task["status"]
-                yield f"data: {json.dumps({'done': True, 'status': final_status})}\n\n"
+                    final_failed = task.get("failed_posts", [])
+                yield f"data: {json.dumps({'done': True, 'status': final_status, 'failed_posts': final_failed})}\n\n"
                 break
-            yield f"data: {json.dumps({'log': msg})}\n\n"
+            if isinstance(msg, dict):
+                yield f"data: {json.dumps(msg)}\n\n"
+            else:
+                yield f"data: {json.dumps({'log': msg})}\n\n"
 
     return Response(stream_with_context(generate()),
                     mimetype="text/event-stream",
@@ -347,6 +462,9 @@ def api_task_status(task_id: str):
         "log_count": len(task["logs"]),
         "site": task["site"],
         "query": task["query"],
+        "raw_query": task.get("raw_query", task["query"]),
+        "progress": task.get("progress", {"current": 0, "total": 0}),
+        "failed_posts": task.get("failed_posts", []),
     })
 
 
@@ -362,7 +480,7 @@ def api_pause():
     if task["status"] == "running":
         task["pause_event"].clear()   # 清除 event → 爬虫在下一个 wait() 处阻塞
         task["status"] = "paused"
-        _task_log(task_id, "⏸ 任务已暂停")
+        _task_log(task_id, "已暂停，新的下载任务不会再启动，进行中的下载会在下一个检查点停下")
     return jsonify({"status": task["status"]})
 
 
@@ -378,7 +496,7 @@ def api_resume():
     if task["status"] == "paused":
         task["status"] = "running"
         task["pause_event"].set()     # 重新 set → 爬虫从 wait() 处继续
-        _task_log(task_id, "▶ 任务已继续")
+        _task_log(task_id, "已继续，恢复投放下载任务")
     return jsonify({"status": task["status"]})
 
 
@@ -397,8 +515,103 @@ def api_stop():
     if task["status"] in ("running", "paused"):
         task["stop_event"].set()
         task["pause_event"].set()   # 确保暂停中的任务能立即看到 stop 信号
-        _task_log(task_id, "⏹ 任务正在中止...")
+        task["status"] = "stopping"
+        _task_log(task_id, "已发送中止信号，等待进行中的下载退出，不会再启动新的下载任务")
     return jsonify({"status": task["status"]})
+
+
+@app.route("/api/retry_failed", methods=["POST"])
+def api_retry_failed():
+    """
+    重试下载当前任务中所有失败的帖子。
+    重置进度和失败列表后，使用爬虫的 download_image 逐个重试。
+    """
+    data = request.get_json(force=True)
+    task_id = data.get("task_id", "")
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+    if not task:
+        return jsonify({"error": "任务不存在"}), 404
+
+    failed_posts = task.get("failed_posts", [])
+    if not failed_posts:
+        return jsonify({"error": "没有失败的下载"}), 400
+
+    site = task["site"]
+    output_dir = Path(task["output_dir"])
+    pause_event = task["pause_event"]
+    stop_event = task["stop_event"]
+
+    # 重置进度
+    task["status"] = "running"
+    task["progress"] = {"current": 0, "total": len(failed_posts)}
+    task["failed_posts"] = []
+    stop_event.clear()
+    pause_event.set()
+    new_failed: list[dict] = []
+
+    def _retry_thread():
+        import danbooru_crawler as dc
+        import yande_crawler as yc
+        crawler = dc if site == "danbooru" else yc
+
+        record_path = output_dir / crawler.RECORD_FILENAME
+        raw_query = task.get("raw_query", "")
+        downloaded = crawler.load_downloaded(record_path, raw_query)
+
+        stopped_at: int | None = None
+
+        for i, item in enumerate(failed_posts):
+            if not _wait_for_task_resume(task):
+                stopped_at = i
+                break
+
+            post_id = item["post_id"]
+            file_url = item["file_url"]
+            filepath = Path(item["filepath"])
+            _task_log(task_id, f"[重试 {i+1}/{len(failed_posts)}] id={post_id} — {filepath.name}")
+
+            retry_kwargs = {"timeout": 120} if site == "yande" else {}
+            success = False
+            for attempt in range(1, 4):
+                if stop_event.is_set():
+                    break
+                success = crawler.download_image(
+                    file_url, filepath, logging.getLogger(site),
+                    pause_event=pause_event, stop_event=stop_event,
+                    **retry_kwargs,
+                )
+                if success:
+                    break
+                if attempt < 3:
+                    _task_log(task_id, f"[重试 {i+1}/{len(failed_posts)}] 第{attempt}次失败，1s后重试...")
+                    time.sleep(1)
+            if stop_event.is_set():
+                stopped_at = i
+                new_failed.append(item)
+                break
+            current = i + 1
+            task["progress"] = {"current": current, "total": len(failed_posts)}
+            task["queue"].put({"type": "progress", "current": current, "total": len(failed_posts)})
+
+            if not success:
+                new_failed.append(item)
+                task["queue"].put({"type": "fail", "post_id": post_id, "error": "retry failed"})
+                _task_log(task_id, f"[重试 {current}/{len(failed_posts)}] 仍失败 — {filepath.name}")
+            else:
+                downloaded.add(post_id)
+                crawler.save_downloaded(record_path, raw_query, downloaded)
+                _task_log(task_id, f"[重试 {current}/{len(failed_posts)}] 成功 — {filepath.name}")
+
+        with _tasks_lock:
+            if stopped_at is not None:
+                new_failed.extend(failed_posts[stopped_at + 1:])
+            task["failed_posts"] = new_failed
+            task["status"] = "stopped" if stop_event.is_set() else "done"
+        task["queue"].put("__DONE__")
+
+    threading.Thread(target=_retry_thread, daemon=True).start()
+    return jsonify({"ok": True, "retry_count": len(failed_posts)})
 
 
 @app.route("/api/records", methods=["GET"])
@@ -432,6 +645,178 @@ def api_reset():
         yande.reset_downloaded(record_path, query)
 
     return jsonify({"ok": True})
+
+
+@app.route("/api/tasks")
+def api_tasks():
+    """获取所有活跃任务列表，用于网页刷新后自动重连"""
+    with _tasks_lock:
+        result = []
+        for task_id, task in _tasks.items():
+            if task["status"] not in ("running", "paused", "stopping"):
+                continue
+            result.append({
+                "task_id": task_id,
+                "site": task["site"],
+                "query": task["query"],
+                "raw_query": task.get("raw_query", task["query"]),
+                "status": task["status"],
+                "log_count": len(task["logs"]),
+                "progress": task.get("progress", {"current": 0, "total": 0}),
+                "failed_count": len(task.get("failed_posts", [])),
+            })
+        return jsonify(result)
+
+
+@app.route("/api/heartbeat", methods=["POST"])
+def api_heartbeat():
+    """浏览器存活心跳：前端定期上报，超时则 exe 自动退出"""
+    global _last_heartbeat
+    with _heartbeat_lock:
+        _last_heartbeat = time.time()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/preview_template", methods=["POST"])
+def api_preview_template():
+    """
+    用一个示例 PostCtx 渲染拆分模板，返回相对路径字符串。
+    前端编辑模板时实时调用，确保和服务端渲染结果一致。
+    """
+    from naming import PostCtx, render_split_path
+    data = request.get_json(force=True)
+    site = data.get("site") or "danbooru"
+    path_tpl = data.get("path_template", "") or ""
+    file_tpl = data.get("file_template", "") or ""
+
+    ctx = PostCtx(
+        site=site,
+        post_id=1234567,
+        query="touhou",
+        artists=["zun"],
+        characters=["hakurei_reimu"],
+        rating="s",
+        ext="jpg",
+        date="2025-04-15",
+        md5="abcdef0123456789abcdef0123456789",
+        copyrights=["touhou"],
+        score=42,
+    )
+
+    try:
+        full = render_split_path(path_tpl, file_tpl, ctx, 1, Path("downloads"))
+        # 转成 POSIX 风格，跨平台展示一致
+        return jsonify({"ok": True, "preview": full.as_posix()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+# ── 下载历史导出 / 导入 ────────────────────────────────────────────────────────
+
+_EXPORT_FORMAT_VERSION = 1
+
+
+@app.route("/api/export_records")
+def api_export_records():
+    """
+    导出两个站点的下载记录合并为一个 JSON 文件。
+    格式：
+      { "version": 1, "exported_at": "...", "danbooru": {...}, "yande": {...} }
+    """
+    output_dir = Path(request.args.get("output_dir") or DEFAULT_DOWNLOAD_DIR)
+    danbooru_record = danbooru._load_record(output_dir / danbooru.RECORD_FILENAME)
+    yande_record = yande._load_record(output_dir / yande.RECORD_FILENAME)
+
+    payload = {
+        "version": _EXPORT_FORMAT_VERSION,
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "danbooru": danbooru_record,
+        "yande": yande_record,
+    }
+    filename = f"gazo-records-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    return Response(
+        body,
+        mimetype="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _merge_records(existing: dict[str, list[int]], incoming: dict) -> tuple[dict[str, list[int]], int, int]:
+    """
+    将 incoming 合并到 existing（按搜索词分组，ID 取并集去重）。
+    返回 (merged, added_queries, added_ids)。
+    """
+    merged = {q: list(ids) for q, ids in existing.items()}
+    added_queries = 0
+    added_ids = 0
+    for query, raw_ids in (incoming or {}).items():
+        if not isinstance(query, str) or not isinstance(raw_ids, list):
+            continue
+        # 过滤非整数 ID（防御外部数据）
+        new_ids = {int(x) for x in raw_ids if isinstance(x, (int, float)) and int(x) > 0}
+        if not new_ids:
+            continue
+        if query not in merged:
+            merged[query] = []
+            added_queries += 1
+        before = set(merged[query])
+        delta = new_ids - before
+        added_ids += len(delta)
+        merged[query] = sorted(before | new_ids)
+    return merged, added_queries, added_ids
+
+
+@app.route("/api/import_records", methods=["POST"])
+def api_import_records():
+    """
+    导入下载记录，合并到现有 `.downloaded_*.json`。
+    Body: 直接上传 JSON 文件内容（multipart/form-data 字段名 file）。
+    或: { "data": {...}, "output_dir": "..." } 形式的 JSON。
+    """
+    output_dir = Path(request.args.get("output_dir") or DEFAULT_DOWNLOAD_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    payload: dict | None = None
+    if "file" in request.files:
+        try:
+            payload = json.loads(request.files["file"].read().decode("utf-8"))
+        except Exception as e:
+            return jsonify({"error": f"无法解析文件: {e}"}), 400
+    else:
+        try:
+            body = request.get_json(force=True) or {}
+            payload = body.get("data") or body
+            if body.get("output_dir"):
+                output_dir = Path(body["output_dir"])
+                output_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            return jsonify({"error": f"无法解析请求体: {e}"}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"error": "导入数据格式错误"}), 400
+
+    incoming_d = payload.get("danbooru", {})
+    incoming_y = payload.get("yande", {})
+    if not isinstance(incoming_d, dict) or not isinstance(incoming_y, dict):
+        return jsonify({"error": "导入数据缺少 danbooru / yande 字段或格式错误"}), 400
+
+    d_path = output_dir / danbooru.RECORD_FILENAME
+    y_path = output_dir / yande.RECORD_FILENAME
+    d_existing = danbooru._load_record(d_path)
+    y_existing = yande._load_record(y_path)
+
+    d_merged, d_new_q, d_new_id = _merge_records(d_existing, incoming_d)
+    y_merged, y_new_q, y_new_id = _merge_records(y_existing, incoming_y)
+
+    danbooru._save_record(d_path, d_merged)
+    yande._save_record(y_path, y_merged)
+
+    return jsonify({
+        "ok": True,
+        "danbooru": {"new_queries": d_new_q, "new_ids": d_new_id, "total_queries": len(d_merged)},
+        "yande":    {"new_queries": y_new_q, "new_ids": y_new_id, "total_queries": len(y_merged)},
+    })
 
 
 if __name__ == "__main__":
