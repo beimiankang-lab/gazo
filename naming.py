@@ -11,15 +11,40 @@ from pathlib import Path
 
 
 _INVALID_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_WINDOWS_RESERVED = {name.lower() for name in (
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(0, 10)),
+    *(f"LPT{i}" for i in range(0, 10)),
+)}
+_MAX_SEGMENT = 100  # 单个路径组件最大字符数，避免超出 Windows MAX_PATH
+_MAX_PATH_LEN = 250  # Windows 完整路径安全上限，留 10 字符余量
+
+
+def _truncate_to_path_limit(root: Path, dir_parts: list[str], filename: str) -> Path:
+    """截断文件名以确保完整路径不超过 Windows MAX_PATH。"""
+    dir_path = root.joinpath(*dir_parts)
+    max_fn_len = _MAX_PATH_LEN - len(str(dir_path)) - 1  # -1 for separator
+    if max_fn_len >= len(filename):
+        return dir_path / filename
+    # 保留扩展名
+    stem, dot, ext = filename.rpartition(".")
+    stem = stem[:max(0, max_fn_len - len(dot) - len(ext))]
+    return dir_path / (stem + dot + ext if dot else stem)
 
 
 def sanitize_segment(name: str, default: str = "_") -> str:
-    """清洗单个路径/文件名字段：去非法字符、去首尾点和空白。"""
+    """清洗单个路径/文件名字段：去非法字符、去首尾点和空白，处理 Windows 保留名，限制长度。"""
     if not name:
         return default
     cleaned = _INVALID_RE.sub("_", name)
     cleaned = cleaned.strip(" .")
-    return cleaned or default
+    if not cleaned:
+        return default
+    # Windows 保留设备名（不区分大小写）加下划线避免创建失败
+    base = cleaned.split(".")[0]
+    if base.lower() in _WINDOWS_RESERVED:
+        cleaned = cleaned.replace(base, base + "_", 1)
+    return cleaned[:_MAX_SEGMENT].rstrip(" .") or default
 
 
 @dataclass(frozen=True)
@@ -118,7 +143,10 @@ def render_path(
         fmt = _build_format_dict(ctx, index)
         rendered = custom_template.format(**fmt)
         parts = [sanitize_segment(p, "_") for p in rendered.replace("\\", "/").split("/") if p]
-        return root.joinpath(*parts)
+        if not parts:
+            return root / "untitled"
+        *dir_parts, filename = parts
+        return _truncate_to_path_limit(root, dir_parts, filename)
 
     if preset not in PRESETS:
         preset = "default"
@@ -127,7 +155,7 @@ def render_path(
     fmt = _build_format_dict(ctx, index)
     dir_parts = [sanitize_segment(p, "_") for p in dir_tpl.format(**fmt).split("/") if p]
     filename = sanitize_segment(file_tpl.format(**fmt), "untitled")
-    return root.joinpath(*dir_parts, filename)
+    return _truncate_to_path_limit(root, dir_parts, filename)
 
 
 def render_split_path(
@@ -151,7 +179,7 @@ def render_split_path(
         rendered_dir = path_template.format(**fmt).replace("\\", "/")
         dir_parts = [sanitize_segment(p, "_") for p in rendered_dir.split("/") if p]
     filename = sanitize_segment(file_template.format(**fmt), "untitled")
-    return root.joinpath(*dir_parts, filename)
+    return _truncate_to_path_limit(root, dir_parts, filename)
 
 
 # ── 文件类型/大小过滤 ─────────────────────────────────────────────────────────

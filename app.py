@@ -181,7 +181,7 @@ def _run_danbooru(task_id: str, query: str, record_query: str, include_deleted: 
         elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
-            failed = danbooru.process_posts(posts, query, output_dir, record_query,
+            failed = danbooru.process_posts(posts, record_query, output_dir, record_query,
                                    extra_handler=handler,
                                    pause_event=pause_event,
                                    stop_event=stop_event,
@@ -245,7 +245,7 @@ def _run_yande(task_id: str, query: str, record_query: str, output_dir: Path,
         elif not posts:
             _task_log(task_id, "未找到任何图片")
         else:
-            failed = yande.process_posts(posts, query, output_dir, record_query,
+            failed = yande.process_posts(posts, record_query, output_dir, record_query,
                                 extra_handler=handler,
                                 pause_event=pause_event,
                                 stop_event=stop_event,

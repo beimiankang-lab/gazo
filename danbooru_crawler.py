@@ -515,6 +515,7 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
             change_active(-1)
 
     def process_group(group_posts: list[dict], group_label: str, stat_key: str):
+        nonlocal handled
         group_total = len(group_posts)
         if group_total == 0:
             return
