@@ -162,7 +162,9 @@ function onRetry() {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 22%),
+    var(--bg);
 }
 
 .log-header {
@@ -170,9 +172,9 @@ function onRetry() {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: rgba(19, 26, 38, 0.76);
 }
 
 .tabs {
@@ -182,18 +184,28 @@ function onRetry() {
 
 .tab-btn {
   border: 1px solid var(--border);
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
-  border-radius: 999px;
-  padding: 7px 14px;
+  border-radius: 12px;
+  padding: 8px 14px;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 800;
+  transition:
+    background 0.18s,
+    border-color 0.18s,
+    color 0.18s;
 }
 
 .tab-btn.active {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.tab-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
 .header-actions {
@@ -203,58 +215,80 @@ function onRetry() {
 }
 
 .status-pill {
-  border-radius: 999px;
-  padding: 6px 10px;
+  border-radius: 12px;
+  padding: 7px 10px;
   font-size: 12px;
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
   border: 1px solid var(--border);
+  font-weight: 800;
 }
 
 .status-running {
   color: var(--accent-ok);
+  border-color: color-mix(in srgb, var(--accent-ok) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-ok) 12%, transparent);
 }
 
 .status-paused {
   color: var(--accent-pause);
+  border-color: color-mix(in srgb, var(--accent-pause) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-pause) 12%, transparent);
 }
 
 .status-stopping {
   color: var(--accent-warn);
+  border-color: color-mix(in srgb, var(--accent-warn) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-warn) 12%, transparent);
 }
 
 .status-error {
   color: var(--accent-err);
+  border-color: color-mix(in srgb, var(--accent-err) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent-err) 12%, transparent);
 }
 
 .tool-btn {
   border: 1px solid var(--border);
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 700;
+  transition:
+    color 0.18s,
+    border-color 0.18s,
+    background 0.18s;
 }
 
 .tool-btn.warn {
   color: var(--accent-warn);
 }
 
+.tool-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+
 .log-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
+  padding: 14px;
 }
 
 .summary-card,
 .progress-section,
 .log-section {
-  background: var(--panel);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 70%),
+    var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 14px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .summary-row {
@@ -268,9 +302,10 @@ function onRetry() {
 }
 
 .summary-label {
-  flex: 0 0 160px;
+  flex: 0 0 150px;
   color: var(--text-muted);
   font-size: 12px;
+  font-weight: 800;
 }
 
 .summary-value {
@@ -288,16 +323,18 @@ function onRetry() {
 }
 
 .progress-bar {
-  height: 8px;
-  background: var(--border);
+  height: 10px;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 999px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.045);
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
   transition: width 0.25s ease;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .prepare-hint {
@@ -310,7 +347,7 @@ function onRetry() {
 .section-title,
 .section-toggle {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text);
   margin-bottom: 10px;
 }
@@ -334,10 +371,10 @@ function onRetry() {
 
 .scroll-btn {
   border: 1px solid var(--border);
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
-  border-radius: 6px;
-  padding: 3px 8px;
+  border-radius: 8px;
+  padding: 5px 8px;
   cursor: pointer;
   font-size: 11px;
   transition: background 0.18s, color 0.18s;
@@ -352,6 +389,10 @@ function onRetry() {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .log-list {
@@ -389,16 +430,21 @@ function onRetry() {
 }
 
 .log-line {
-  font-family: Consolas, 'Courier New', monospace;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-word;
+  padding: 7px 9px;
+  border: 1px solid rgba(151, 172, 209, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .log-sys {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .log-debug {
@@ -407,13 +453,36 @@ function onRetry() {
 
 .log-warn {
   color: var(--accent-warn);
+  border-color: color-mix(in srgb, var(--accent-warn) 20%, transparent);
 }
 
 .log-error {
   color: var(--accent-err);
+  border-color: color-mix(in srgb, var(--accent-err) 24%, transparent);
+  background: color-mix(in srgb, var(--accent-err) 7%, transparent);
 }
 
 .error-section {
   border-color: rgba(245, 108, 108, 0.35);
+}
+
+@media (max-width: 760px) {
+  .log-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+  }
+
+  .summary-row {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .summary-label {
+    flex: none;
+  }
 }
 </style>

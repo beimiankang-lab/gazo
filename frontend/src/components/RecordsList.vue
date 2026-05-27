@@ -151,12 +151,14 @@ defineExpose({ refresh });
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
 }
 
 .title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 800;
   color: var(--text);
 }
 
@@ -170,17 +172,25 @@ defineExpose({ refresh });
 .actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .tool-btn,
 .reset-btn {
   border: 1px solid var(--border);
-  background: var(--card);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
-  border-radius: 8px;
-  padding: 6px 10px;
+  border-radius: 10px;
+  padding: 7px 10px;
   font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
+  transition:
+    border-color 0.18s,
+    color 0.18s,
+    background 0.18s,
+    transform 0.12s;
 }
 
 .tool-btn:disabled {
@@ -191,7 +201,9 @@ defineExpose({ refresh });
 .tool-btn:hover:not(:disabled),
 .reset-btn:hover {
   color: var(--text);
-  border-color: var(--accent);
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-1px);
 }
 
 .records-list {
@@ -207,6 +219,9 @@ defineExpose({ refresh });
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .record-item {
@@ -214,21 +229,33 @@ defineExpose({ refresh });
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: var(--panel);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
+    var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
+  transition:
+    border-color 0.18s,
+    background 0.18s;
+}
+
+.record-item:hover {
+  border-color: var(--border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.065), transparent),
+    var(--panel);
 }
 
 .site-pill {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .site-pill.danbooru {
@@ -247,6 +274,7 @@ defineExpose({ refresh });
 .record-query {
   color: var(--text);
   font-size: 13px;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -256,5 +284,16 @@ defineExpose({ refresh });
   margin-top: 4px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+@media (max-width: 520px) {
+  .records-header {
+    flex-direction: column;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 </style>

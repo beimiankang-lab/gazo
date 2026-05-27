@@ -29,10 +29,10 @@ export default defineConfig({
     sourcemap: false,
   },
   server: {
-    port: 5173,
+    port: 5174,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:5000',
+        target: 'http://127.0.0.1:5173',
         changeOrigin: true,
       },
     },

@@ -74,7 +74,7 @@ python app.py
 启动后在浏览器打开：
 
 ```
-http://127.0.0.1:5000
+http://127.0.0.1:5173
 ```
 
 > 如果还没构建过前端,`python app.py` 会直接报错提示去跑 `npm run build`。
@@ -84,15 +84,15 @@ http://127.0.0.1:5000
 修改前端时推荐分端开发，Vite 会把 `/api` 代理到 Flask：
 
 ```bash
-# 终端 A：启动 Flask（默认 5000）
+# 终端 A：启动 Flask（默认 5173）
 python app.py
 
-# 终端 B：启动 Vite 开发服务器（5173，带热更新）
+# 终端 B：启动 Vite 开发服务器（5174，带热更新）
 cd frontend
 npm run dev
 ```
 
-浏览器打开 Vite 给出的地址（默认 `http://127.0.0.1:5173`），改 Vue 文件会自动刷新。
+浏览器打开 Vite 给出的地址（默认 `http://127.0.0.1:5174`），改 Vue 文件会自动刷新。
 
 ---
 
@@ -243,7 +243,7 @@ D:\crawler\
 │   │   ├── useTasks.ts         # 任务状态 + SSE
 │   │   └── App.vue
 │   ├── index.html
-│   ├── vite.config.ts          # 开发代理 /api → 5000
+│   ├── vite.config.ts          # 开发代理 /api → 5173
 │   └── package.json
 ├── static_dist/                # 前端构建产物（npm run build 生成，已 gitignore）
 ├── downloads/                  # 图片下载目录（已 gitignore）

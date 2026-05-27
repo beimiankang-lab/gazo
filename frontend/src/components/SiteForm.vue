@@ -286,21 +286,22 @@ function onStart() {
 .form-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 100%;
-  padding: 18px;
+  padding: 14px;
 }
 
 .panel-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 11px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--card) 92%, #fff 8%), var(--card));
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.08);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 70%),
+    var(--card);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
 }
 
 .panel-section.compact {
@@ -309,8 +310,10 @@ function onStart() {
 
 .hero-section {
   background:
-    radial-gradient(circle at top right, rgba(255, 255, 255, 0.12), transparent 42%),
-    linear-gradient(160deg, color-mix(in srgb, var(--card) 80%, var(--accent) 20%), var(--card));
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, transparent), transparent 56%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 64%),
+    var(--card-strong);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
 }
 
 .section-head {
@@ -323,16 +326,18 @@ function onStart() {
 .eyebrow {
   margin: 0 0 4px;
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--text-muted);
+  font-weight: 800;
 }
 
 .section-title {
   margin: 0;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text);
+  letter-spacing: 0;
 }
 
 .section-title.small {
@@ -342,7 +347,7 @@ function onStart() {
 .section-note {
   margin: 0;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   color: var(--text-muted);
   white-space: pre-line;
 }
@@ -374,7 +379,7 @@ function onStart() {
 
 .sub-title {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--text);
 }
 
@@ -382,8 +387,8 @@ function onStart() {
   width: 26px;
   height: 26px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -409,6 +414,14 @@ function onStart() {
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
   font-size: 12px;
+  transition:
+    border-color 0.18s,
+    background 0.18s;
+}
+
+.check-card:hover {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .size-row {
@@ -427,10 +440,12 @@ function onStart() {
 .tag-count {
   flex-shrink: 0;
   padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 11px;
+  font-weight: 700;
 }
 
 .tag-card {
@@ -451,21 +466,25 @@ function onStart() {
 .btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 12px 16px;
+  min-height: 42px;
+  padding: 11px 16px;
   border: 1px solid transparent;
   border-radius: 12px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   transition:
-    transform 0.08s,
+    transform 0.12s,
     filter 0.18s,
-    opacity 0.18s;
+    opacity 0.18s,
+    box-shadow 0.18s;
 }
 
 .btn:hover:not(:disabled) {
   filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 
 .btn:active:not(:disabled) {
@@ -478,18 +497,20 @@ function onStart() {
 }
 
 .btn-primary-d {
-  background: linear-gradient(135deg, var(--accent-d), color-mix(in srgb, var(--accent-d) 68%, #fff 32%));
+  background: linear-gradient(135deg, var(--accent-d), color-mix(in srgb, var(--accent-d) 72%, #fff 28%));
   color: #fff;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-d) 24%, transparent);
 }
 
 .btn-primary-y {
   background: linear-gradient(135deg, var(--accent-y), color-mix(in srgb, var(--accent-y) 68%, #fff 32%));
   color: #fff;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-y) 24%, transparent);
 }
 
 .btn-pause {
   flex: 1;
-  background: var(--panel);
+  background: rgba(255, 255, 255, 0.055);
   border-color: var(--border);
   color: var(--text);
 }
@@ -504,6 +525,16 @@ function onStart() {
 @media (max-width: 960px) {
   .checkbox-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .form-body {
+    padding: 12px;
+  }
+
+  .panel-section {
+    border-radius: 14px;
   }
 }
 </style>

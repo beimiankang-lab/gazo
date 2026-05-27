@@ -824,7 +824,7 @@ if __name__ == "__main__":
     import webbrowser
     import threading as _t
 
-    port = 5000
+    port = int(os.environ.get("GAZO_PORT", "5173"))
     url = f"http://127.0.0.1:{port}"
     print(f"启动 Web 界面: {url}")
 

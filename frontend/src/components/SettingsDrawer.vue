@@ -330,7 +330,13 @@ async function testDanbooruCreds() {
 
 <style scoped>
 .group {
-  margin-bottom: 20px;
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 70%),
+    rgba(255, 255, 255, 0.025);
 }
 
 .group label {
@@ -338,8 +344,8 @@ async function testDanbooruCreds() {
   margin-bottom: 8px;
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 800;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -356,12 +362,12 @@ async function testDanbooruCreds() {
 
 .tpl-input {
   width: 100%;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--card);
   color: var(--text);
-  font-family: 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 13px;
   outline: none;
   transition: border-color 0.18s;
@@ -379,13 +385,13 @@ async function testDanbooruCreds() {
 }
 
 .chip {
-  padding: 4px 10px;
+  padding: 5px 9px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--card);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-muted);
   cursor: pointer;
-  font-family: 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 11px;
   transition:
     background 0.18s,
@@ -411,12 +417,12 @@ async function testDanbooruCreds() {
 }
 
 .preview-box {
-  padding: 10px 12px;
+  padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--card);
   color: var(--text);
-  font-family: 'Consolas', 'Courier New', monospace;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
@@ -440,10 +446,11 @@ async function testDanbooruCreds() {
   gap: 6px;
   padding: 10px 6px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--card);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
   transition:
     border-color 0.2s,
@@ -464,10 +471,11 @@ async function testDanbooruCreds() {
 }
 
 .sw-dot {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  border-radius: 9px;
   background: var(--sw);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .kbd-row {
@@ -485,20 +493,21 @@ async function testDanbooruCreds() {
 }
 
 kbd {
-  padding: 1px 6px;
+  padding: 2px 7px;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--card);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
   color: var(--text);
-  font-family: 'Consolas', monospace;
+  font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 11px;
 }
 
 .status-line {
   margin-bottom: 12px;
-  padding: 6px 10px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
   font-size: 12px;
+  font-weight: 700;
 }
 
 .status-line.ok {
@@ -529,5 +538,18 @@ kbd {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 520px) {
+  .theme-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .preview-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 </style>

@@ -47,15 +47,26 @@ const s3 = tm('help.s3') as string[];
 .help-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   max-height: 60vh;
   overflow-y: auto;
   padding-right: 8px;
 }
+
+.help-body section {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 70%),
+    rgba(255, 255, 255, 0.025);
+}
+
 .help-body h3 {
   font-size: 14px;
   color: var(--accent);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  font-weight: 800;
 }
 .help-body p,
 .help-body li {
@@ -70,11 +81,12 @@ const s3 = tm('help.s3') as string[];
 .help-body pre {
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 12px;
+  padding: 10px 12px;
   font-size: 12px;
   color: var(--accent-y);
   margin: 6px 0;
   overflow-x: auto;
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
 }
 </style>

@@ -74,7 +74,7 @@ python app.py
 啟動後在瀏覽器開啟：
 
 ```
-http://127.0.0.1:5000
+http://127.0.0.1:5173
 ```
 
 > 若尚未建置前端，`python app.py` 會直接顯示錯誤並提示先執行 `npm run build`。
@@ -84,15 +84,15 @@ http://127.0.0.1:5000
 修改前端時建議前後端分別啟動，Vite 會把 `/api` 代理到 Flask：
 
 ```bash
-# 終端機 A：啟動 Flask（預設埠口 5000）
+# 終端機 A：啟動 Flask（預設埠口 5173）
 python app.py
 
-# 終端機 B：啟動 Vite 開發伺服器（5173，支援熱更新）
+# 終端機 B：啟動 Vite 開發伺服器（5174，支援熱更新）
 cd frontend
 npm run dev
 ```
 
-在瀏覽器開啟 Vite 顯示的網址（預設 `http://127.0.0.1:5173`）。修改 Vue 檔案後會自動重新整理。
+在瀏覽器開啟 Vite 顯示的網址（預設 `http://127.0.0.1:5174`）。修改 Vue 檔案後會自動重新整理。
 
 ---
 
@@ -243,7 +243,7 @@ D:\crawler\
 │   │   ├── useTasks.ts         # 任務狀態 + SSE
 │   │   └── App.vue
 │   ├── index.html
-│   ├── vite.config.ts          # 開發代理 /api → 5000
+│   ├── vite.config.ts          # 開發代理 /api → 5173
 │   └── package.json
 ├── static_dist/                # 前端建置產物（npm run build 生成；已 gitignore）
 ├── downloads/                  # 圖片下載目錄（已 gitignore）

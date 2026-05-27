@@ -1,26 +1,31 @@
 :root {
-  --bg: #0d0f14;
-  --panel: #161b22;
-  --card: #1c2230;
-  --border: #2a3244;
+  --bg: #090d13;
+  --bg-alt: #101621;
+  --panel: #131a26;
+  --panel-strong: #182233;
+  --card: #1b2536;
+  --card-strong: #202c41;
+  --border: rgba(151, 172, 209, 0.16);
+  --border-strong: rgba(151, 172, 209, 0.24);
   --accent-d: #7c6aff;
   --accent-y: #ff6b8a;
   --accent: #7c6aff;
   --accent-light: #9486ff;
   --accent-dark: #6352e8;
-  --accent-ok: #3ddc84;
-  --accent-err: #ff5f5f;
-  --accent-warn: #ffc107;
+  --accent-ok: #35d48f;
+  --accent-err: #ff6b6b;
+  --accent-warn: #f2b84b;
   --accent-pause: #f59e0b;
-  --text: #e0e6f0;
-  --text-muted: #6b7a99;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --text: #edf2fb;
+  --text-muted: #8d9ab4;
+  --text-soft: #66748e;
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-xs: 10px;
+  --shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
 
   color-scheme: dark;
 
-  /* Element Plus 主色覆盖：映射到项目强调色 */
   --el-color-primary: #7c6aff;
   --el-color-primary-light-3: #9486ff;
   --el-color-primary-light-5: #ada2ff;
@@ -29,23 +34,24 @@
   --el-color-primary-light-9: #e8e5ff;
   --el-color-primary-dark-2: #6352e8;
 
-  /* 深色背景基调 */
-  --el-bg-color: #161b22;
-  --el-bg-color-page: #0d0f14;
-  --el-bg-color-overlay: #1c2230;
-  --el-text-color-primary: #e0e6f0;
-  --el-text-color-regular: #c5cfe0;
-  --el-text-color-secondary: #8f9cb3;
-  --el-text-color-placeholder: #6b7a99;
-  --el-border-color: #2a3244;
-  --el-border-color-light: #2a3244;
-  --el-border-color-lighter: #2a3244;
-  --el-border-color-extra-light: #232a3a;
-  --el-fill-color: #1c2230;
-  --el-fill-color-light: #1c2230;
-  --el-fill-color-lighter: #1c2230;
-  --el-fill-color-blank: #161b22;
-  --el-mask-color: rgba(0, 0, 0, 0.65);
+  --el-bg-color: #131a26;
+  --el-bg-color-page: #090d13;
+  --el-bg-color-overlay: #182233;
+  --el-text-color-primary: #edf2fb;
+  --el-text-color-regular: #d3dbea;
+  --el-text-color-secondary: #8d9ab4;
+  --el-text-color-placeholder: #66748e;
+  --el-border-color: rgba(151, 172, 209, 0.16);
+  --el-border-color-light: rgba(151, 172, 209, 0.16);
+  --el-border-color-lighter: rgba(151, 172, 209, 0.14);
+  --el-border-color-extra-light: rgba(151, 172, 209, 0.1);
+  --el-fill-color: #182233;
+  --el-fill-color-light: #1b2536;
+  --el-fill-color-lighter: #202c41;
+  --el-fill-color-blank: #131a26;
+  --el-mask-color: rgba(5, 8, 13, 0.72);
+  --el-border-radius-base: 12px;
+  --el-border-radius-small: 10px;
 }
 
 *,
@@ -60,25 +66,142 @@ html,
 body,
 #app {
   height: 100%;
-  overflow: hidden;
 }
 
 body {
-  background: var(--bg);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 26%),
+    linear-gradient(135deg, rgba(124, 106, 255, 0.04), transparent 35%),
+    var(--bg);
   color: var(--text);
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family:
+    Bahnschrift,
+    "Segoe UI",
+    "Aptos",
+    sans-serif;
   font-size: 14px;
+  line-height: 1.5;
 }
 
-/* 全局滚动条 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 120px 120px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 100%);
+  opacity: 0.2;
+}
+
+#app {
+  position: relative;
+  isolation: isolate;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: rgba(151, 172, 209, 0.22);
+  border-radius: 999px;
 }
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(151, 172, 209, 0.34);
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.el-overlay-dialog,
+.el-overlay-drawer {
+  backdrop-filter: blur(14px);
+}
+
+.el-drawer,
+.el-dialog {
+  --el-bg-color: var(--panel);
+  --el-border-color: var(--border);
+}
+
+.el-dialog {
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.el-dialog__header,
+.el-drawer__header {
+  margin: 0;
+  padding: 18px 20px 14px;
+  color: var(--text);
+}
+
+.el-dialog__body,
+.el-drawer__body {
+  color: var(--text);
+}
+
+.el-tabs__nav-wrap::after {
+  background-color: var(--border);
+}
+
+.el-tabs__item {
+  color: var(--text-muted);
+}
+
+.el-tabs__item.is-active {
+  color: var(--text);
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper,
+.el-input-number__decrease,
+.el-input-number__increase,
+.el-switch {
+  box-shadow: none !important;
+}
+
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  background-color: var(--card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--border)) !important;
+}
+
+.el-button {
+  border-radius: 12px;
+}
+
+.el-switch.is-checked .el-switch__core {
+  border-color: var(--accent) !important;
+  background-color: var(--accent) !important;
 }

@@ -124,20 +124,32 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  padding: 12px;
+  gap: 12px;
 }
 
 .layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(360px, 420px) 1fr;
-  height: calc(100vh - 56px);
+  grid-template-columns: minmax(370px, 430px) minmax(0, 1fr);
+  min-height: 0;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: rgba(9, 13, 19, 0.72);
+  box-shadow: var(--shadow);
 }
 
 @media (max-width: 680px) {
+  .app-shell {
+    padding: 8px;
+    gap: 8px;
+  }
+
   .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(280px, 42vh);
+    grid-template-rows: minmax(0, 1fr) minmax(300px, 44vh);
+    border-radius: 18px;
   }
 }
 </style>

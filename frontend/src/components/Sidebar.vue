@@ -132,15 +132,21 @@ async function handleStop(site: Site) {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, #fff 10%), var(--panel));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 28%),
+    var(--panel);
   border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .site-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.018);
 }
 
 .site-tab {
@@ -149,10 +155,11 @@ async function handleStop(site: Site) {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 15px 10px;
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 700;
@@ -160,29 +167,33 @@ async function handleStop(site: Site) {
   transition:
     color 0.2s,
     background 0.2s,
-    border-color 0.2s;
+    border-color 0.2s,
+    transform 0.12s;
 }
 
 .site-tab:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.065);
+  transform: translateY(-1px);
 }
 
 .site-tab.active.site-danbooru {
-  color: var(--accent-d);
-  border-color: var(--accent-d);
-  background: rgba(124, 106, 255, 0.08);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--accent-d) 52%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-d) 22%, transparent), rgba(255, 255, 255, 0.04));
 }
 
 .site-tab.active.site-yande {
-  color: var(--accent-y);
-  border-color: var(--accent-y);
-  background: rgba(255, 107, 138, 0.08);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--accent-y) 52%, var(--border));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-y) 22%, transparent), rgba(255, 255, 255, 0.04));
 }
 
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   flex-shrink: 0;
 }
@@ -197,8 +208,8 @@ async function handleStop(site: Site) {
 
 .running-badge {
   position: absolute;
-  top: 9px;
-  right: 14px;
+  top: 7px;
+  right: 8px;
   width: 8px;
   height: 8px;
   border-radius: 999px;
@@ -231,6 +242,7 @@ async function handleStop(site: Site) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  padding-bottom: 4px;
 }
 
 @keyframes pulse {
@@ -239,6 +251,13 @@ async function handleStop(site: Site) {
   }
   to {
     opacity: 1;
+  }
+}
+
+@media (max-width: 680px) {
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
   }
 }
 </style>

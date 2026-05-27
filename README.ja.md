@@ -74,7 +74,7 @@ python app.py
 ブラウザで以下を開きます：
 
 ```
-http://127.0.0.1:5000
+http://127.0.0.1:5173
 ```
 
 > まだビルドしていない場合、`python app.py` はエラーで停止し、`npm run build` を実行するよう促します。
@@ -84,15 +84,15 @@ http://127.0.0.1:5000
 フロントエンドを編集する場合はフロント/バックエンドを別々に立ち上げると便利です。Vite は `/api` を Flask にプロキシします：
 
 ```bash
-# ターミナル A：Flask（デフォルトポート 5000）
+# ターミナル A：Flask（デフォルトポート 5173）
 python app.py
 
-# ターミナル B：Vite 開発サーバー（5173、ホットリロードあり）
+# ターミナル B：Vite 開発サーバー（5174、ホットリロードあり）
 cd frontend
 npm run dev
 ```
 
-Vite が表示する URL（既定では `http://127.0.0.1:5173`）を開きます。Vue ファイルを編集すると自動で再読み込みされます。
+Vite が表示する URL（既定では `http://127.0.0.1:5174`）を開きます。Vue ファイルを編集すると自動で再読み込みされます。
 
 ---
 
@@ -243,7 +243,7 @@ D:\crawler\
 │   │   ├── useTasks.ts         # タスク状態 + SSE
 │   │   └── App.vue
 │   ├── index.html
-│   ├── vite.config.ts          # 開発時プロキシ /api → 5000
+│   ├── vite.config.ts          # 開発時プロキシ /api → 5173
 │   └── package.json
 ├── static_dist/                # フロントのビルド成果物（npm run build で生成、gitignore 済）
 ├── downloads/                  # 画像の保存先（gitignore 済）
