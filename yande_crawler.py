@@ -146,16 +146,40 @@ def list_records(record_path: Path) -> None:
 
 # ── 帖子获取 ──────────────────────────────────────────────────────────────────
 
-def fetch_posts_page(query: str, page: int, limit: int = 100) -> list[dict]:
+_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504, 520, 522, 524}
+
+
+def fetch_posts_page(query: str, page: int, limit: int = 100,
+                     max_retries: int = 5, log_fn=None) -> list[dict]:
     """
-    获取一页搜索结果。
+    获取一页搜索结果，遇到瞬时网络错误时自动重试。
     yande.re 单页最多 100 条。
     """
     url = f"{BASE_URL}/post.json"
     params = {"tags": query, "page": page, "limit": limit}
-    resp = _get_session().get(url, params=params, timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = _get_session().get(url, params=params, timeout=30)
+            if resp.status_code in _RETRYABLE_STATUS:
+                raise requests.HTTPError(
+                    f"HTTP {resp.status_code}", response=resp)
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.ConnectionError, requests.Timeout,
+                requests.HTTPError) as e:
+            last_exc = e
+            if isinstance(e, requests.HTTPError):
+                code = getattr(e.response, "status_code", None)
+                if code is not None and code not in _RETRYABLE_STATUS:
+                    raise
+            if attempt >= max_retries:
+                break
+            backoff = min(2 ** attempt, 32)
+            if log_fn:
+                log_fn(f"  第 {page} 页第 {attempt} 次请求失败 ({e})，{backoff}s 后重试...")
+            time.sleep(backoff)
+    raise last_exc if last_exc else RuntimeError("fetch_posts_page failed")
 
 
 def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
@@ -163,6 +187,8 @@ def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
     """分页获取单个 query 的所有结果（内部辅助函数）。"""
     all_posts: list[dict] = []
     page = 1
+    consecutive_fails = 0
+    MAX_CONSECUTIVE_FAILS = 3
     while True:
         if stop_event is not None and stop_event.is_set():
             return all_posts
@@ -170,7 +196,18 @@ def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
             return all_posts
 
         log_fn(f"  获取第 {page} 页...")
-        posts = fetch_posts_page(query, page)
+        try:
+            posts = fetch_posts_page(query, page, log_fn=log_fn)
+            consecutive_fails = 0
+        except Exception as e:
+            consecutive_fails += 1
+            log_fn(f"  第 {page} 页重试用尽 ({e})，跳过该页 (连续失败 {consecutive_fails}/{MAX_CONSECUTIVE_FAILS})")
+            if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
+                log_fn(f"  连续 {MAX_CONSECUTIVE_FAILS} 页失败，疑似网络/节点问题，停止当前搜索。建议更换网络后重试。")
+                break
+            page += 1
+            time.sleep(3)
+            continue
         if not posts:
             log_fn("无更多结果")
             break

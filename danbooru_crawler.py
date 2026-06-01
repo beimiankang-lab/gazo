@@ -140,16 +140,45 @@ def list_records(record_path: Path) -> None:
 
 # ── 帖子获取 ──────────────────────────────────────────────────────────────────
 
-def fetch_posts_page(query: str, page: int, limit: int = 200) -> list[dict]:
+_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504, 520, 522, 524}
+
+
+def fetch_posts_page(query: str, page: int, limit: int = 200,
+                     max_retries: int = 5, log_fn=None) -> list[dict]:
     """
-    获取一页搜索结果。
+    获取一页搜索结果，遇到瞬时网络错误时自动重试。
     Danbooru 免费账号每页最多 200 条，Gold+ 账号可更高。
     """
     url = f"{BASE_URL}/posts.json"
     params = {"tags": query, "page": page, "limit": limit}
-    resp = requests.get(url, params=params, headers=HEADERS, auth=get_auth(), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = requests.get(url, params=params, headers=HEADERS,
+                                auth=get_auth(), timeout=30)
+            if resp.status_code in _RETRYABLE_STATUS:
+                # 服务端瞬时错误：当作可重试异常处理
+                raise requests.HTTPError(
+                    f"HTTP {resp.status_code}", response=resp)
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.ConnectionError, requests.Timeout,
+                requests.HTTPError) as e:
+            last_exc = e
+            # 非可重试的 HTTP 错误（如 401/403/404）直接抛
+            if isinstance(e, requests.HTTPError):
+                code = getattr(e.response, "status_code", None)
+                if code is not None and code not in _RETRYABLE_STATUS:
+                    raise
+            if attempt >= max_retries:
+                break
+            # 指数退避：2s, 4s, 8s, 16s, 32s（上限）
+            backoff = min(2 ** attempt, 32)
+            if log_fn:
+                log_fn(f"  第 {page} 页第 {attempt} 次请求失败 ({e})，{backoff}s 后重试...")
+            time.sleep(backoff)
+    # 重试用尽后抛出最后一次异常
+    raise last_exc if last_exc else RuntimeError("fetch_posts_page failed")
 
 
 def fetch_all_posts(query: str, include_deleted: bool,
@@ -188,6 +217,8 @@ def fetch_all_posts(query: str, include_deleted: bool,
         is_deleted_query = "status:deleted" in q and "-status:deleted" not in q
         label = "(已删除)" if is_deleted_query else "(正常)"
         page = 1
+        consecutive_fails = 0
+        MAX_CONSECUTIVE_FAILS = 3
         log_fn(f"正在搜索 {label}: {q}")
         while True:
             # 中止优先于暂停：中止时直接退出，不等暂停解除
@@ -201,10 +232,17 @@ def fetch_all_posts(query: str, include_deleted: bool,
 
             log_fn(f"  获取第 {page} 页...")
             try:
-                posts = fetch_posts_page(q, page)
+                posts = fetch_posts_page(q, page, log_fn=log_fn)
+                consecutive_fails = 0
             except Exception as e:
-                log_fn(f"请求失败: {e}")
-                break
+                consecutive_fails += 1
+                log_fn(f"  第 {page} 页重试用尽 ({e})，跳过该页继续 (连续失败 {consecutive_fails}/{MAX_CONSECUTIVE_FAILS})")
+                if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
+                    log_fn(f"  连续 {MAX_CONSECUTIVE_FAILS} 页全部失败，疑似网络/节点问题，停止当前查询。建议更换网络后重试。")
+                    break
+                page += 1
+                time.sleep(3)
+                continue
 
             if not posts:
                 log_fn("无更多结果")

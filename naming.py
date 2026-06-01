@@ -32,8 +32,11 @@ def _truncate_to_path_limit(root: Path, dir_parts: list[str], filename: str) -> 
     return dir_path / (stem + dot + ext if dot else stem)
 
 
-def sanitize_segment(name: str, default: str = "_") -> str:
-    """清洗单个路径/文件名字段：去非法字符、去首尾点和空白，处理 Windows 保留名，限制长度。"""
+def sanitize_segment(name: str, default: str = "_", *, preserve_ext: bool = False) -> str:
+    """清洗单个路径/文件名字段：去非法字符、去首尾点和空白，处理 Windows 保留名，限制长度。
+
+    preserve_ext=True 时，按文件名处理：截断时保留末尾扩展名，避免 .jpg 等后缀被切掉。
+    """
     if not name:
         return default
     cleaned = _INVALID_RE.sub("_", name)
@@ -44,6 +47,15 @@ def sanitize_segment(name: str, default: str = "_") -> str:
     base = cleaned.split(".")[0]
     if base.lower() in _WINDOWS_RESERVED:
         cleaned = cleaned.replace(base, base + "_", 1)
+    if len(cleaned) <= _MAX_SEGMENT:
+        return cleaned.rstrip(" .") or default
+    if preserve_ext:
+        stem, dot, ext = cleaned.rpartition(".")
+        # 只在 ext 存在且看起来像扩展名（短、无空白）时保留
+        if dot and 0 < len(ext) <= 8 and " " not in ext:
+            keep = max(1, _MAX_SEGMENT - len(dot) - len(ext))
+            truncated = (stem[:keep].rstrip(" .") + dot + ext)
+            return truncated or default
     return cleaned[:_MAX_SEGMENT].rstrip(" .") or default
 
 
@@ -142,10 +154,12 @@ def render_path(
         _validate_template(custom_template, require_ext=True, require_unique=True)
         fmt = _build_format_dict(ctx, index)
         rendered = custom_template.format(**fmt)
-        parts = [sanitize_segment(p, "_") for p in rendered.replace("\\", "/").split("/") if p]
-        if not parts:
+        raw_parts = [p for p in rendered.replace("\\", "/").split("/") if p]
+        if not raw_parts:
             return root / "untitled"
-        *dir_parts, filename = parts
+        *raw_dirs, raw_file = raw_parts
+        dir_parts = [sanitize_segment(p, "_") for p in raw_dirs]
+        filename = sanitize_segment(raw_file, "untitled", preserve_ext=True)
         return _truncate_to_path_limit(root, dir_parts, filename)
 
     if preset not in PRESETS:
@@ -154,7 +168,7 @@ def render_path(
 
     fmt = _build_format_dict(ctx, index)
     dir_parts = [sanitize_segment(p, "_") for p in dir_tpl.format(**fmt).split("/") if p]
-    filename = sanitize_segment(file_tpl.format(**fmt), "untitled")
+    filename = sanitize_segment(file_tpl.format(**fmt), "untitled", preserve_ext=True)
     return _truncate_to_path_limit(root, dir_parts, filename)
 
 
@@ -178,7 +192,7 @@ def render_split_path(
     if path_template:
         rendered_dir = path_template.format(**fmt).replace("\\", "/")
         dir_parts = [sanitize_segment(p, "_") for p in rendered_dir.split("/") if p]
-    filename = sanitize_segment(file_template.format(**fmt), "untitled")
+    filename = sanitize_segment(file_template.format(**fmt), "untitled", preserve_ext=True)
     return _truncate_to_path_limit(root, dir_parts, filename)
 
 
