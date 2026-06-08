@@ -173,6 +173,11 @@ export function useTasks() {
         file_template: settings.fileTemplate,
         max_posts: maxPosts,
         ratings,
+        whitelist_tags: siteSettings.whitelist,
+        whitelist_mode: siteSettings.whitelistMode,
+        include_no_author: siteSettings.includeNoAuthor,
+        auto_retry: siteSettings.autoRetry,
+        dedup_mode: siteSettings.dedupMode,
         filters: {
           allow_image: siteSettings.fileTypes.image,
           allow_animated: siteSettings.fileTypes.animated,

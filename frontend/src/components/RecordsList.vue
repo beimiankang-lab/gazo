@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import type { RecordsResponse, Site } from '@/types';
 import { downloadRecordsExport, fetchRecords, importRecords, resetRecord } from '@/api';
+
+const { t } = useI18n();
 
 const props = defineProps<{ outputDir: string }>();
 
@@ -33,13 +36,14 @@ function flatten() {
 }
 
 async function onReset(site: Site, query: string) {
+  const siteName = t(`site.${site}`);
   try {
     await ElMessageBox.confirm(
-      `确定清除 ${site === 'danbooru' ? 'Danbooru' : 'Yande.re'} 里 “${query}” 的下载记录吗？`,
-      '清除记录',
+      t('records.resetConfirmMsg', { site: siteName, query }),
+      t('records.resetConfirmTitle'),
       {
-        confirmButtonText: '清除',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.reset'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       },
     );
@@ -49,20 +53,20 @@ async function onReset(site: Site, query: string) {
 
   try {
     await resetRecord(site, query, props.outputDir);
-    ElMessage.success(`已清除 “${query}” 的记录`);
+    ElMessage.success(t('records.resetSuccess', { query }));
     refresh();
   } catch (e) {
-    ElMessage.error(`清除失败: ${(e as Error).message}`);
+    ElMessage.error(t('records.resetFailed', { msg: (e as Error).message }));
   }
 }
 
 function onExport() {
   if (items.value.length === 0) {
-    ElMessage.warning('当前没有可导出的下载记录');
+    ElMessage.warning(t('records.exportEmpty'));
     return;
   }
   downloadRecordsExport(props.outputDir);
-  ElMessage.success('已开始导出下载记录');
+  ElMessage.success(t('records.exportSuccess'));
 }
 
 function triggerImport() {
@@ -80,10 +84,10 @@ async function onFilePicked(e: Event) {
     const result = await importRecords(file, props.outputDir);
     const totalIds = result.danbooru.new_ids + result.yande.new_ids;
     const totalQueries = result.danbooru.new_queries + result.yande.new_queries;
-    ElMessage.success(`导入成功：新增 ${totalIds} 个 ID，新增 ${totalQueries} 个搜索词`);
+    ElMessage.success(t('records.importSuccess', { ids: totalIds, queries: totalQueries }));
     refresh();
   } catch (e) {
-    ElMessage.error(`导入失败: ${(e as Error).message}`);
+    ElMessage.error(t('records.importFailed', { msg: (e as Error).message }));
   } finally {
     importing.value = false;
   }
@@ -103,15 +107,15 @@ defineExpose({ refresh });
   <section class="records">
     <div class="records-header">
       <div>
-        <div class="title">已下载记录</div>
-        <div class="subtitle">{{ props.outputDir || '当前目录未设置' }}</div>
+        <div class="title">{{ t('records.title') }}</div>
+        <div class="subtitle">{{ props.outputDir || t('records.noDir') }}</div>
       </div>
       <div class="actions">
-        <button class="tool-btn" @click="onExport">导出</button>
+        <button class="tool-btn" @click="onExport">{{ t('records.exportBtn') }}</button>
         <button class="tool-btn" :disabled="importing" @click="triggerImport">
-          {{ importing ? '导入中...' : '导入' }}
+          {{ importing ? t('records.importing') : t('records.importBtn') }}
         </button>
-        <button class="tool-btn" @click="refresh">刷新</button>
+        <button class="tool-btn" @click="refresh">{{ t('common.refresh') }}</button>
       </div>
       <input
         ref="fileInputRef"
@@ -123,16 +127,16 @@ defineExpose({ refresh });
     </div>
 
     <div class="records-list">
-      <div v-if="items.length === 0" class="empty">当前目录还没有下载记录</div>
+      <div v-if="items.length === 0" class="empty">{{ t('records.empty') }}</div>
       <div v-for="item in items" :key="`${item.site}-${item.query}`" class="record-item">
         <span class="site-pill" :class="item.site">
           {{ item.site === 'danbooru' ? 'D' : 'Y' }}
         </span>
         <div class="record-main">
           <div class="record-query" :title="item.query">{{ item.query }}</div>
-          <div class="record-meta">{{ item.count }} 张</div>
+          <div class="record-meta">{{ t('records.items', { n: item.count }) }}</div>
         </div>
-        <button class="reset-btn" @click="onReset(item.site, item.query)">清除</button>
+        <button class="reset-btn" @click="onReset(item.site, item.query)">{{ t('common.reset') }}</button>
       </div>
     </div>
   </section>
@@ -215,55 +219,47 @@ defineExpose({ refresh });
 }
 
 .empty {
-  padding: 24px 0;
-  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text-muted);
-  font-size: 13px;
-  border: 1px dashed var(--border);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.025);
+  text-align: center;
+  padding: 24px 12px;
 }
 
 .record-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    var(--panel);
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  transition:
-    border-color 0.18s,
-    background 0.18s;
+  border-radius: 10px;
+  padding: 10px 12px;
+  transition: border-color 0.18s;
 }
 
 .record-item:hover {
   border-color: var(--border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.065), transparent),
-    var(--panel);
 }
 
 .site-pill {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 11px;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 800;
+  color: #fff;
 }
 
 .site-pill.danbooru {
-  background: var(--accent-d);
+  background: #8e6bbf;
 }
 
 .site-pill.yande {
-  background: var(--accent-y);
+  background: #fa97b0;
 }
 
 .record-main {
@@ -272,28 +268,21 @@ defineExpose({ refresh });
 }
 
 .record-query {
-  color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
-  white-space: nowrap;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .record-meta {
-  margin-top: 4px;
+  margin-top: 2px;
+  font-size: 11px;
   color: var(--text-muted);
-  font-size: 12px;
 }
 
-@media (max-width: 520px) {
-  .records-header {
-    flex-direction: column;
-  }
-
-  .actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
+.reset-btn {
+  flex-shrink: 0;
 }
 </style>

@@ -23,7 +23,13 @@
 - [UI Overview](#ui-overview)
 - [Danbooru Guide](#danbooru-guide)
 - [Yande.re Guide](#yandere-guide)
+- [Rating & Tag Filters](#rating--tag-filters)
+- [Download Deduplication](#download-deduplication)
+- [Auto Retry](#auto-retry)
 - [Download History](#download-history)
+- [Import / Export Records](#import--export-records)
+- [Settings](#settings)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Project Layout](#project-layout)
 - [CLI Usage](#cli-usage)
 - [FAQ](#faq)
@@ -99,20 +105,38 @@ Open the URL printed by Vite (defaults to `http://127.0.0.1:5174`). Changes to V
 ## UI Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Gazō 画像を集める       [?Help]  Danbooru & Yande  │
-├──────────────────┬──────────────────────────────────┤
-│  Danbooru│Yande  │  Danbooru log │ Yande.re log     │
-│──────────────────│─────────────────────────────────-│
-│  Search tags     │  [status] idle/run/pause/stop    │
-│  Save directory  │                                   │
-│  [Include gone?] │  2026-05-07 [INFO] searching...  │
-│  [▶Start][⏸][⏹] │  2026-05-07 [INFO] get: xxx.jpg  │
-│──────────────────│                                   │
-│  Download history│                                   │
-│  D hatsune_miku  │                                   │
-│  Y shingeki ...  │                                   │
-└──────────────────┴──────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Gazō 画像を集める         [?Help]  Danbooru & Yande    │
+├─────────────────────┬────────────────────────────────────┤
+│  Danbooru │ Yande   │  Danbooru log │ Yande.re log       │
+│─────────────────────│───────────────────────────────────-│
+│  Search tags        │  [status] idle/run/pause/stop      │
+│  Save directory     │                                     │
+│                     │  2026-05-07 [INFO] searching...    │
+│  ▼ Rating filter   │  2026-05-07 [INFO] get: xxx.jpg    │
+│  ☑ General ☑ Safe  │                                     │
+│  ☑ Questionable    │                                     │
+│  ☑ Explicit        │                                     │
+│                     │                                     │
+│  ▼ Tag rules       │                                     │
+│  Whitelist [AND|OR]│                                     │
+│  Blacklist         │                                     │
+│  ☐ No-author posts │                                     │
+│                     │                                     │
+│  ▼ File type/size  │                                     │
+│  ☑Images ☑GIF ☑Vid│                                     │
+│  Max size: [___] MB│                                     │
+│                     │                                     │
+│  ☑ Auto-retry      │                                     │
+│  ◉ Dedup: local    │                                     │
+│                     │                                     │
+│  [▶ Start][⏸][⏹]  │                                     │
+│─────────────────────│                                     │
+│  Download history   │                                     │
+│  [Export][Import]   │                                     │
+│  D hatsune_miku   N │                                     │
+│  Y shingeki ...   N │                                     │
+└─────────────────────┴────────────────────────────────────┘
 ```
 
 | Area | Description |
@@ -122,7 +146,13 @@ Open the URL printed by Vite (defaults to `http://127.0.0.1:5174`). Changes to V
 | Control buttons | ▶ Start, ⏸ Pause / Resume, ⏹ Stop (with confirmation) |
 | Status dot | Green pulse = running, orange = paused, red pulse = stopping, red = stopped/error, solid green = done |
 | Tab corner dot | Small dot on the top-right of a tab while its task is active — handy for tracking state across tabs |
-| Help button | The "? Help" button in the top-right opens a full in-app guide that matches this document |
+| Help button | The "? Help" button in the top-right opens a full in-app guide |
+| Rating filter | Checkboxes for General / Sensitive / Questionable / Explicit — only checked ratings are downloaded |
+| Tag rules | Whitelist (AND/OR mode) and Blacklist to include or exclude posts by tags. "No-author posts" checkbox for downloading authorless images |
+| File type/size | Toggle image / GIF / video types, optional max file size limit |
+| Auto-retry | Automatically retry failed downloads once after completion |
+| Dedup mode | Three options: no skip / current query only / global (all queries) |
+| Download history | Left panel showing download counts per query, with Export / Import / Reset buttons |
 
 ---
 
@@ -202,6 +232,61 @@ downloads/
 
 ---
 
+## Rating & Tag Filters
+
+### Rating filter
+
+Each site supports checkboxes for four rating levels:
+
+| Rating | Description |
+|--------|-------------|
+| General | All-ages content |
+| Sensitive | Mild suggestive content |
+| Questionable | Explicit but not extreme |
+| Explicit | Adult / explicit content |
+
+Check only the ratings you want — unchecked ratings are filtered out server-side before download. Checking all or none disables the filter.
+
+### Tag rules — Blacklist & Whitelist
+
+Both sites support tag-based filtering in addition to the main search tags:
+
+- **Blacklist**: posts containing *any* of these tags are excluded. Blacklisted tags are prepended with `-` in the API query, which means filtering happens server-side — saving time and bandwidth.
+- **Whitelist**: only posts matching whitelist tags are kept. Two modes:
+  - **AND** — the post must contain *all* whitelist tags
+  - **OR** — the post must contain *at least one* whitelist tag
+- **Include posts without authors**: when whitelist is active, checking this also downloads posts that match the main query but have no artist tag.
+
+Whitelist tags are sent as structured filters to the backend, not embedded in the search box. The search box always shows your original query.
+
+### File type & size filter
+
+- Toggle **images** (jpg/png/webp), **animated** (gif), and **video** (mp4/webm/swf) independently. Unchecked types are skipped at download time.
+- **Max file size**: set a megabyte cap — files exceeding it are skipped. Leave empty for no limit.
+
+### Limit posts
+
+Set a maximum number of posts to fetch. When OFF, all matching results are downloaded.
+
+---
+## Download Deduplication
+
+Three modes control whether already-downloaded posts are skipped:
+
+| Mode | Behavior |
+|------|----------|
+| **No skip** | Always re-download, regardless of history |
+| **Current query only** (default) | Skip IDs that were already downloaded under the *same* search query |
+| **Global** | Skip IDs that were downloaded under *any* search query on this site |
+
+History records are always saved per-query regardless of mode. The default `local` mode preserves the original behavior.
+
+---
+## Auto Retry
+
+When enabled, after the main download pass completes the backend automatically retries every failed download once (up to 3 attempts per file). No need to click the manual retry button — progress is logged in real time.
+
+---
 ## Download History
 
 Two JSON files live under `downloads/`:
@@ -213,12 +298,55 @@ Two JSON files live under `downloads/`:
 
 The two sites' histories are fully independent — resetting one does not affect the other.
 
-### Resetting a history entry
+### Managing history in the UI
 
-In the left-side **Download History** panel, click the **✕** button next to any entry. After the confirmation, that query's history is cleared and the next run will re-download everything.
+- **Reset**: click the **Reset** button next to any query to clear its history. The next run will re-download everything for that query.
+- **Refresh**: re-read history from disk (useful if files changed externally).
+- See [Import / Export Records](#import--export-records) below for bulk backup and merge.
+
+Files are written atomically (temp file + `os.replace`) to prevent data loss on unexpected shutdown.
 
 ---
+## Import / Export Records
 
+The Download History panel includes **Export** and **Import** buttons:
+
+- **Export**: downloads a JSON snapshot of all download records (both sites, all queries) — useful for backup or migration.
+- **Import**: select a previously-exported JSON file to merge its records into the current history. Duplicate IDs are automatically skipped.
+
+Format:
+```json
+{
+  "version": 1,
+  "exported_at": "2026-06-08T12:00:00",
+  "danbooru": { "query_name": [123, 456] },
+  "yande": { "query_name": [789, 101] }
+}
+```
+
+---
+## Settings
+
+Click the **gear icon** (top-right) to open the settings drawer. Changes are saved to `localStorage` and persist across sessions.
+
+| Tab | Options |
+|-----|---------|
+| **General** | Interface language (EN / 简体中文 / 繁體中文 / 日本語), theme color (purple / sky / pink / mint / amber / coral) |
+| **Downloads** | Concurrency per site (1–8), default save directory, filename templates with placeholders (`{id}`, `{artist}`, `{query}`, `{ext}`, `{md5}`, `{date}`, `{rating}`, etc.) |
+| **Filter** | Default rating / file-type / max-size presets applied to new tasks |
+| **API Keys** | Danbooru login + API key — test connection button to verify credentials |
+
+---
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl + Enter` | Start download |
+| `Ctrl + .` | Stop current task |
+| `?` | Open help guide |
+| `,` | Open settings |
+
+---
 ## Project Layout
 
 ```
@@ -301,6 +429,24 @@ A: Closing the browser only drops the frontend connection. Flask and the downloa
 
 **Q: Can I run both sites at the same time?**
 A: Yes. Danbooru and Yande.re are independent domains — running one task on each is fine. Running multiple concurrent tasks on the *same* site is discouraged (combined request rates will likely trip throttling).
+
+**Q: How do I filter by rating?**
+A: Use the rating checkboxes under the filter section. Only checked ratings are downloaded. Uncheck all or check all to disable the filter.
+
+**Q: How do blacklist and whitelist work?**
+A: Blacklist excludes posts with *any* listed tag. Whitelist keeps only posts matching the listed tags — use the AND/OR toggle to control whether *all* or *any* whitelist tags must match. Both work server-side to save bandwidth.
+
+**Q: What is download deduplication?**
+A: The Dedup mode setting controls whether posts you already downloaded are skipped. "Current query only" (default) skips posts downloaded under the same search. "Global" skips posts downloaded under any search on that site. "No skip" always re-downloads.
+
+**Q: How do I back up my download history?**
+A: Use the **Export** button in the Download History panel — it downloads a JSON file with all records. Use **Import** to restore or merge records on another machine.
+
+**Q: Can I customize how files are named and organized?**
+A: Yes. Open Settings → Downloads tab to configure path and filename templates with placeholders like `{artist}`, `{query}`, `{id}`, `{md5}`, `{date}`, `{rating}`, etc.
+
+**Q: How do I use keyboard shortcuts?**
+A: `Ctrl+Enter` to start, `Ctrl+.` to stop, `?` for help, `,` for settings. These work anywhere in the app.
 
 ---
 

@@ -234,6 +234,23 @@ function onStart() {
               style="width: 100%"
             />
             <p class="section-note">{{ t('form.whitelistHint') }}</p>
+
+            <div class="whitelist-options">
+              <label class="sub-title">{{ t('form.whitelistMode') }}</label>
+              <el-radio-group v-model="form.whitelistMode" :disabled="isActive" size="small">
+                <el-radio-button value="and">{{ t('form.whitelistModeAnd') }}</el-radio-button>
+                <el-radio-button value="or">{{ t('form.whitelistModeOr') }}</el-radio-button>
+              </el-radio-group>
+              <p class="section-note">{{ t('form.whitelistModeHint') }}</p>
+            </div>
+
+            <div class="switch-row" style="margin-top: 4px;">
+              <div>
+                <label class="sub-title">{{ t('form.includeNoAuthor') }}</label>
+                <p class="section-note">{{ t('form.includeNoAuthorHint') }}</p>
+              </div>
+              <el-switch v-model="form.includeNoAuthor" :disabled="isActive" />
+            </div>
           </div>
 
           <div class="tag-card">
@@ -252,6 +269,26 @@ function onStart() {
             <p class="section-note">{{ t('form.blacklistHint') }}</p>
           </div>
         </template>
+      </section>
+
+      <section class="panel-section">
+        <div class="switch-row">
+          <div>
+            <h3 class="section-title small">{{ t('form.autoRetry') }}</h3>
+            <p class="section-note">{{ t('form.autoRetryHint') }}</p>
+          </div>
+          <el-switch v-model="form.autoRetry" :disabled="isActive" />
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <label class="sub-title">{{ t('form.dedupMode') }}</label>
+        <el-radio-group v-model="form.dedupMode" :disabled="isActive" size="small">
+          <el-radio-button value="none">{{ t('form.dedupModeNone') }}</el-radio-button>
+          <el-radio-button value="local">{{ t('form.dedupModeLocal') }}</el-radio-button>
+          <el-radio-button value="global">{{ t('form.dedupModeGlobal') }}</el-radio-button>
+        </el-radio-group>
+        <p class="section-note">{{ t('form.dedupModeHint') }}</p>
       </section>
 
       <section class="panel-section">
@@ -456,6 +493,13 @@ function onStart() {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.whitelist-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
 }
 
 .control-row {

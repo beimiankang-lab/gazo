@@ -102,9 +102,11 @@ def _load_record(record_path: Path) -> dict[str, list[int]]:
 
 
 def _save_record(record_path: Path, record: dict[str, list[int]]) -> None:
-    """将完整下载记录写回 JSON 文件"""
-    with open(record_path, "w", encoding="utf-8") as f:
+    """将完整下载记录原子写回 JSON 文件（先写临时文件再替换，避免写一半崩溃清空原文件）"""
+    tmp = record_path.with_suffix(record_path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, record_path)
 
 
 def load_downloaded(record_path: Path, query: str) -> set[int]:
@@ -113,10 +115,21 @@ def load_downloaded(record_path: Path, query: str) -> set[int]:
     return set(record.get(query, []))
 
 
-def save_downloaded(record_path: Path, query: str, downloaded: set[int]) -> None:
-    """将指定搜索词的已下载 ID 集合持久化"""
+def load_all_downloaded(record_path: Path) -> set[int]:
+    """加载所有搜索词下已下载的帖子 ID（全局去重用）"""
     record = _load_record(record_path)
-    record[query] = sorted(downloaded)
+    all_ids: set[int] = set()
+    for ids in record.values():
+        all_ids.update(ids)
+    return all_ids
+
+
+def save_downloaded(record_path: Path, query: str, post_id: int) -> None:
+    """将单个已下载的帖子 ID 追加到指定搜索词的记录中"""
+    record = _load_record(record_path)
+    ids = set(record.get(query, []))
+    ids.add(post_id)
+    record[query] = sorted(ids)
     _save_record(record_path, record)
 
 
@@ -234,11 +247,17 @@ def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
 
 def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None,
                     max_posts: int | None = None,
-                    ratings: list[str] | None = None) -> list[dict]:
+                    ratings: list[str] | None = None,
+                    whitelist_tags: list[str] | None = None,
+                    whitelist_mode: str = "and",
+                    include_no_author: bool = False) -> list[dict]:
     """
     分页获取所有搜索结果。
     max_posts: 限制返回的帖子总数，None 表示不限制。
     ratings: Yande.re 评级列表。多个评级时分次获取再合并去重（API 不支持逗号分隔多评级）。
+    whitelist_tags: 白名单标签列表。
+    whitelist_mode: "and" 或 "or"（Yande.re 不支持 ~ 语法，OR 通过多次查询实现）。
+    include_no_author: 额外搜索无作者标签的帖子并合并。
     log_fn: 日志输出函数。
     pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
     stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
@@ -248,37 +267,84 @@ def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None,
     if max_posts is not None and max_posts > 0:
         log_fn(f"已开启下载上限，本次最多处理 {max_posts} 张")
 
-    # Yande.re API 不支持 rating:q,s 逗号分隔多评级 → 分次获取再合并
+    whitelist_tags = whitelist_tags or []
+
+    # ── 构建 API 查询列表 ──
+    api_queries: list[str] = []
+
+    if whitelist_tags and whitelist_mode == "or":
+        log_fn(f"白名单 OR 模式: {', '.join(whitelist_tags)}")
+        for tag in whitelist_tags:
+            api_queries.append(f"{query} {tag}")
+    else:
+        if whitelist_tags:
+            log_fn(f"白名单 AND 模式: {', '.join(whitelist_tags)}")
+            api_queries.append(f"{query} {' '.join(whitelist_tags)}")
+        else:
+            api_queries.append(query)
+
+    # 多评级时展开每个查询
     if ratings and len(ratings) > 1:
         log_fn(f"评级分次获取: {', '.join(ratings)}")
-        seen_ids: set[int] = set()
-        all_posts: list[dict] = []
+        expanded: list[str] = []
+        for q in api_queries:
+            for r in ratings:
+                expanded.append(f"{q} rating:{r}")
+        api_queries = expanded
 
-        for rating in ratings:
-            if stop_event is not None and stop_event.is_set():
-                break
-            rating_query = f"{query} rating:{rating}"
-            log_fn(f"  → 获取 rating:{rating} 结果...")
-            posts = _fetch_all_posts_single(rating_query, log_fn, pause_event, stop_event, max_posts)
-            new_posts = [p for p in posts if p["id"] not in seen_ids]
-            for p in new_posts:
-                seen_ids.add(p["id"])
-            log_fn(f"  rating:{rating} 获取 {len(posts)} 张，去重后新增 {len(new_posts)} 张")
-            all_posts.extend(new_posts)
+    # ── 执行所有查询，合并去重 ──
+    seen_ids: set[int] = set()
+    all_posts: list[dict] = []
 
-        # 按 id 倒序（Yande.re 默认展示顺序）
-        all_posts.sort(key=lambda p: p["id"], reverse=True)
+    for q in api_queries:
+        if stop_event is not None and stop_event.is_set():
+            break
+        log_fn(f"  → 获取: {q}")
+        posts = _fetch_all_posts_single(q, log_fn, pause_event, stop_event, max_posts)
+        new_posts = [p for p in posts if p["id"] not in seen_ids]
+        for p in new_posts:
+            seen_ids.add(p["id"])
+        log_fn(f"  获取 {len(posts)} 张，去重后新增 {len(new_posts)} 张")
+        all_posts.extend(new_posts)
 
-        # max_posts 在合并后截断
-        if max_posts is not None and max_posts > 0 and len(all_posts) > max_posts:
-            all_posts = all_posts[:max_posts]
+    # ── 无作者额外查询 ──
+    if include_no_author and not (stop_event is not None and stop_event.is_set()):
+        log_fn(f"  → 获取无作者标签的帖子...")
+        if ratings and len(ratings) > 1:
+            for r in ratings:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                rq = f"{query} rating:{r}"
+                posts = _fetch_all_posts_single(rq, log_fn, pause_event, stop_event, max_posts)
+                no_auth_new = []
+                for p in posts:
+                    if p["id"] not in seen_ids:
+                        artists, _, _ = classify_tags(p.get("tags", ""))
+                        if not artists:
+                            no_auth_new.append(p)
+                            seen_ids.add(p["id"])
+                log_fn(f"    rating:{r} 无作者新增 {len(no_auth_new)} 张")
+                all_posts.extend(no_auth_new)
+        else:
+            posts = _fetch_all_posts_single(query, log_fn, pause_event, stop_event, max_posts)
+            no_auth_new = []
+            for p in posts:
+                if p["id"] not in seen_ids:
+                    artists, _, _ = classify_tags(p.get("tags", ""))
+                    if not artists:
+                        no_auth_new.append(p)
+                        seen_ids.add(p["id"])
+            log_fn(f"  无作者帖子新增 {len(no_auth_new)} 张")
+            all_posts.extend(no_auth_new)
 
-        log_fn(f"合并去重后共 {len(all_posts)} 张图片")
-        return all_posts
+    # 按 id 倒序
+    all_posts.sort(key=lambda p: p["id"], reverse=True)
 
-    # 单评级时 buildRatingFragment 已嵌入 query，无需重复拼接
-    all_posts = _fetch_all_posts_single(query, log_fn, pause_event, stop_event, max_posts)
-    log_fn(f"共找到 {len(all_posts)} 张图片")
+    # max_posts 截断
+    if max_posts is not None and max_posts > 0 and len(all_posts) > max_posts:
+        all_posts = all_posts[:max_posts]
+
+    log_fn(f"合并去重后共 {len(all_posts)} 张图片")
     return all_posts
 
 
@@ -462,12 +528,14 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
                   filters=None,
                   on_progress=None,
                   on_fail=None,
-                  download_concurrency: int = 4) -> list[dict]:
+                  download_concurrency: int = 4,
+                  dedup_mode: str = "local") -> list[dict]:
     """
     处理帖子列表：跳过已下载、查询标签类型、命名、顺序下载图片并更新记录。
     extra_handler: 可选，前端实时日志 Handler。
     pause_event: threading.Event，被清除时在每张图片下载前阻塞（暂停）。
     stop_event: threading.Event，被 set 时在每张图片下载前退出（中止）。
+    dedup_mode: "none" 不跳过, "local" 跳过当前搜索词已下载, "global" 跳过所有搜索词已下载。
     """
     from naming import render_split_path
 
@@ -479,7 +547,12 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
     logger.info(f"待处理图片: {len(posts)} 张")
 
     record_path = output_dir / RECORD_FILENAME
-    downloaded = load_downloaded(record_path, effective_record_query)
+    if dedup_mode == "none":
+        downloaded: set[int] = set()
+    elif dedup_mode == "global":
+        downloaded = load_all_downloaded(record_path)
+    else:
+        downloaded = load_downloaded(record_path, effective_record_query)
 
     all_tags: set[str] = set()
     for post in posts:
@@ -614,7 +687,7 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
             if success:
                 with record_lock:
                     downloaded.add(post_id)
-                    save_downloaded(record_path, effective_record_query, downloaded)
+                    save_downloaded(record_path, effective_record_query, post_id)
                 logger.debug(f"{prefix} 成功: {filepath.name}")
                 return {"kind": "success"}
 

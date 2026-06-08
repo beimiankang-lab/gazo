@@ -148,7 +148,12 @@ def _run_danbooru(task_id: str, query: str, record_query: str, include_deleted: 
                   path_template: str = "", file_template: str = "",
                   filters_raw: dict | None = None,
                   max_posts: int | None = None,
-                  download_concurrency: int = 4):
+                  download_concurrency: int = 4,
+                  whitelist_tags: list[str] | None = None,
+                  whitelist_mode: str = "and",
+                  include_no_author: bool = False,
+                  auto_retry: bool = False,
+                  dedup_mode: str = "local"):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -175,7 +180,10 @@ def _run_danbooru(task_id: str, query: str, record_query: str, include_deleted: 
                                          log_fn=log_fn,
                                          pause_event=pause_event,
                                          stop_event=stop_event,
-                                         max_posts=max_posts)
+                                         max_posts=max_posts,
+                                         whitelist_tags=whitelist_tags,
+                                         whitelist_mode=whitelist_mode,
+                                         include_no_author=include_no_author)
         if stop_event.is_set():
             pass
         elif not posts:
@@ -192,9 +200,14 @@ def _run_danbooru(task_id: str, query: str, record_query: str, include_deleted: 
                                    filters=filters,
                                    on_progress=_on_progress,
                                    on_fail=_on_fail,
-                                   download_concurrency=download_concurrency)
+                                   download_concurrency=download_concurrency,
+                                   dedup_mode=dedup_mode)
             with _tasks_lock:
                 _tasks[task_id]["failed_posts"] = failed
+            if auto_retry and failed and not stop_event.is_set():
+                still_failed = _retry_failed_posts(task_id, _tasks[task_id])
+                with _tasks_lock:
+                    _tasks[task_id]["failed_posts"] = still_failed
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -211,7 +224,12 @@ def _run_yande(task_id: str, query: str, record_query: str, output_dir: Path,
                filters_raw: dict | None = None,
                max_posts: int | None = None,
                ratings: list[str] | None = None,
-               download_concurrency: int = 4):
+               download_concurrency: int = 4,
+               whitelist_tags: list[str] | None = None,
+               whitelist_mode: str = "and",
+               include_no_author: bool = False,
+               auto_retry: bool = False,
+               dedup_mode: str = "local"):
     handler = QueueHandler(task_id)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
@@ -239,7 +257,10 @@ def _run_yande(task_id: str, query: str, record_query: str, output_dir: Path,
                                       pause_event=pause_event,
                                       stop_event=stop_event,
                                       max_posts=max_posts,
-                                      ratings=ratings)
+                                      ratings=ratings,
+                                      whitelist_tags=whitelist_tags,
+                                      whitelist_mode=whitelist_mode,
+                                      include_no_author=include_no_author)
         if stop_event.is_set():
             pass
         elif not posts:
@@ -256,9 +277,14 @@ def _run_yande(task_id: str, query: str, record_query: str, output_dir: Path,
                                 filters=filters,
                                 on_progress=_on_progress,
                                 on_fail=_on_fail,
-                                download_concurrency=download_concurrency)
+                                download_concurrency=download_concurrency,
+                                dedup_mode=dedup_mode)
             with _tasks_lock:
                 _tasks[task_id]["failed_posts"] = failed
+            if auto_retry and failed and not stop_event.is_set():
+                still_failed = _retry_failed_posts(task_id, _tasks[task_id])
+                with _tasks_lock:
+                    _tasks[task_id]["failed_posts"] = still_failed
         with _tasks_lock:
             _tasks[task_id]["status"] = "stopped" if stop_event.is_set() else "done"
         _tasks[task_id]["queue"].put("__DONE__")
@@ -331,6 +357,15 @@ def api_start():
     filters_raw = data.get("filters") or None
     ratings: list[str] | None = data.get("ratings")  # Yande.re 多评级分次获取
     raw_concurrency = data.get("download_concurrency", 4)
+    whitelist_tags: list[str] = [t.strip() for t in (data.get("whitelist_tags") or []) if isinstance(t, str) and t.strip()]
+    whitelist_mode: str = data.get("whitelist_mode", "and")
+    if whitelist_mode not in ("and", "or"):
+        whitelist_mode = "and"
+    include_no_author: bool = bool(data.get("include_no_author", False))
+    auto_retry: bool = bool(data.get("auto_retry", False))
+    dedup_mode = data.get("dedup_mode", "local")
+    if dedup_mode not in ("none", "local", "global"):
+        dedup_mode = "local"
     # max_posts: None / 0 / 负数都视为不限制
     raw_max = data.get("max_posts")
     try:
@@ -382,14 +417,16 @@ def api_start():
                              args=(task_id, query, raw_query, include_deleted, output_dir,
                                    template_preset, template_custom,
                                    path_template, file_template, filters_raw,
-                                   max_posts, download_concurrency),
+                                   max_posts, download_concurrency,
+                                   whitelist_tags, whitelist_mode, include_no_author, auto_retry, dedup_mode),
                              daemon=True)
     else:
         t = threading.Thread(target=_run_yande,
                              args=(task_id, query, raw_query, output_dir,
                                    template_preset, template_custom,
                                    path_template, file_template, filters_raw,
-                                   max_posts, ratings, download_concurrency),
+                                   max_posts, ratings, download_concurrency,
+                                   whitelist_tags, whitelist_mode, include_no_author, auto_retry, dedup_mode),
                              daemon=True)
 
     _task_log(task_id, f"下载并发数已设置为 {download_concurrency}")
@@ -520,11 +557,84 @@ def api_stop():
     return jsonify({"status": task["status"]})
 
 
+def _retry_failed_posts(task_id: str, task: dict) -> list[dict]:
+    """重试任务中所有失败帖子，返回仍失败的列表。同步执行，不创建线程。"""
+    import danbooru_crawler as dc
+    import yande_crawler as yc
+
+    failed_posts = task.get("failed_posts", [])
+    if not failed_posts:
+        return []
+
+    site = task["site"]
+    output_dir = Path(task["output_dir"])
+    pause_event = task["pause_event"]
+    stop_event = task["stop_event"]
+    crawler = dc if site == "danbooru" else yc
+
+    record_path = output_dir / crawler.RECORD_FILENAME
+    raw_query = task.get("raw_query", "")
+    downloaded = crawler.load_downloaded(record_path, raw_query)
+
+    total = len(failed_posts)
+    _task_log(task_id, f"[自动重试] 开始重试 {total} 张失败的下载...")
+    task["progress"] = {"current": 0, "total": total}
+    new_failed: list[dict] = []
+
+    for i, item in enumerate(failed_posts):
+        if not _wait_for_task_resume(task):
+            new_failed.extend(failed_posts[i:])
+            break
+        if stop_event.is_set():
+            new_failed.append(item)
+            continue
+
+        post_id = item["post_id"]
+        file_url = item["file_url"]
+        filepath = Path(item["filepath"])
+        _task_log(task_id, f"[自动重试 {i+1}/{total}] id={post_id} — {filepath.name}")
+
+        retry_kwargs = {"timeout": 120} if site == "yande" else {}
+        success = False
+        for attempt in range(1, 4):
+            if stop_event.is_set():
+                break
+            success = crawler.download_image(
+                file_url, filepath, logging.getLogger(site),
+                pause_event=pause_event, stop_event=stop_event,
+                **retry_kwargs,
+            )
+            if success:
+                break
+            if attempt < 3:
+                _task_log(task_id, f"[自动重试 {i+1}/{total}] 第{attempt}次失败，1s后重试...")
+                time.sleep(1)
+
+        current = i + 1
+        task["progress"] = {"current": current, "total": total}
+        task["queue"].put({"type": "progress", "current": current, "total": total})
+
+        if stop_event.is_set():
+            new_failed.append(item)
+            continue
+        if not success:
+            new_failed.append(item)
+            task["queue"].put({"type": "fail", "post_id": post_id, "error": "retry failed"})
+            _task_log(task_id, f"[自动重试 {current}/{total}] 仍失败 — {filepath.name}")
+        else:
+            downloaded.add(post_id)
+            crawler.save_downloaded(record_path, raw_query, post_id)
+            _task_log(task_id, f"[自动重试 {current}/{total}] 成功 — {filepath.name}")
+
+    _task_log(task_id, f"[自动重试] 完成：成功 {total - len(new_failed)}，仍失败 {len(new_failed)}")
+    return new_failed
+
+
 @app.route("/api/retry_failed", methods=["POST"])
 def api_retry_failed():
     """
-    重试下载当前任务中所有失败的帖子。
-    重置进度和失败列表后，使用爬虫的 download_image 逐个重试。
+    重试下载当前任务中所有失败的帖子（手动触发）。
+    异步执行，在单独线程中通过 _retry_failed_posts 完成。
     """
     data = request.get_json(force=True)
     task_id = data.get("task_id", "")
@@ -537,81 +647,21 @@ def api_retry_failed():
     if not failed_posts:
         return jsonify({"error": "没有失败的下载"}), 400
 
-    site = task["site"]
-    output_dir = Path(task["output_dir"])
-    pause_event = task["pause_event"]
-    stop_event = task["stop_event"]
-
-    # 重置进度
     task["status"] = "running"
-    task["progress"] = {"current": 0, "total": len(failed_posts)}
     task["failed_posts"] = []
-    stop_event.clear()
-    pause_event.set()
-    new_failed: list[dict] = []
+    task["stop_event"].clear()
+    task["pause_event"].set()
+    total = len(failed_posts)
 
     def _retry_thread():
-        import danbooru_crawler as dc
-        import yande_crawler as yc
-        crawler = dc if site == "danbooru" else yc
-
-        record_path = output_dir / crawler.RECORD_FILENAME
-        raw_query = task.get("raw_query", "")
-        downloaded = crawler.load_downloaded(record_path, raw_query)
-
-        stopped_at: int | None = None
-
-        for i, item in enumerate(failed_posts):
-            if not _wait_for_task_resume(task):
-                stopped_at = i
-                break
-
-            post_id = item["post_id"]
-            file_url = item["file_url"]
-            filepath = Path(item["filepath"])
-            _task_log(task_id, f"[重试 {i+1}/{len(failed_posts)}] id={post_id} — {filepath.name}")
-
-            retry_kwargs = {"timeout": 120} if site == "yande" else {}
-            success = False
-            for attempt in range(1, 4):
-                if stop_event.is_set():
-                    break
-                success = crawler.download_image(
-                    file_url, filepath, logging.getLogger(site),
-                    pause_event=pause_event, stop_event=stop_event,
-                    **retry_kwargs,
-                )
-                if success:
-                    break
-                if attempt < 3:
-                    _task_log(task_id, f"[重试 {i+1}/{len(failed_posts)}] 第{attempt}次失败，1s后重试...")
-                    time.sleep(1)
-            if stop_event.is_set():
-                stopped_at = i
-                new_failed.append(item)
-                break
-            current = i + 1
-            task["progress"] = {"current": current, "total": len(failed_posts)}
-            task["queue"].put({"type": "progress", "current": current, "total": len(failed_posts)})
-
-            if not success:
-                new_failed.append(item)
-                task["queue"].put({"type": "fail", "post_id": post_id, "error": "retry failed"})
-                _task_log(task_id, f"[重试 {current}/{len(failed_posts)}] 仍失败 — {filepath.name}")
-            else:
-                downloaded.add(post_id)
-                crawler.save_downloaded(record_path, raw_query, downloaded)
-                _task_log(task_id, f"[重试 {current}/{len(failed_posts)}] 成功 — {filepath.name}")
-
+        still_failed = _retry_failed_posts(task_id, task)
         with _tasks_lock:
-            if stopped_at is not None:
-                new_failed.extend(failed_posts[stopped_at + 1:])
-            task["failed_posts"] = new_failed
-            task["status"] = "stopped" if stop_event.is_set() else "done"
+            task["failed_posts"] = still_failed
+            task["status"] = "stopped" if task["stop_event"].is_set() else "done"
         task["queue"].put("__DONE__")
 
     threading.Thread(target=_retry_thread, daemon=True).start()
-    return jsonify({"ok": True, "retry_count": len(failed_posts)})
+    return jsonify({"ok": True, "retry_count": total})
 
 
 @app.route("/api/records", methods=["GET"])

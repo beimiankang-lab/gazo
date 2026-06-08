@@ -45,6 +45,10 @@ export interface SiteFormSettings {
   maxSizeMb: number | null;
   blacklist: string[];
   whitelist: string[];
+  whitelistMode: 'and' | 'or';
+  includeNoAuthor: boolean;
+  autoRetry: boolean;
+  dedupMode: 'none' | 'local' | 'global';
   limitEnabled: boolean;
   maxPosts: number;
 }
@@ -82,6 +86,10 @@ function makeSiteDefaults(includeDeleted = false): SiteFormSettings {
     maxSizeMb: null,
     blacklist: [],
     whitelist: [],
+    whitelistMode: 'and',
+    includeNoAuthor: false,
+    autoRetry: false,
+    dedupMode: 'local',
     limitEnabled: false,
     maxPosts: 100,
   };
@@ -117,6 +125,10 @@ function normalizeSiteForm(value: unknown, fallback: SiteFormSettings): SiteForm
           : fallback.maxSizeMb,
     blacklist: normalizeStringList(raw.blacklist),
     whitelist: normalizeStringList(raw.whitelist),
+    whitelistMode: (raw.whitelistMode === 'and' || raw.whitelistMode === 'or') ? raw.whitelistMode : fallback.whitelistMode,
+    includeNoAuthor: typeof raw.includeNoAuthor === 'boolean' ? raw.includeNoAuthor : fallback.includeNoAuthor,
+    autoRetry: typeof raw.autoRetry === 'boolean' ? raw.autoRetry : fallback.autoRetry,
+    dedupMode: (raw.dedupMode === 'none' || raw.dedupMode === 'local' || raw.dedupMode === 'global') ? raw.dedupMode : fallback.dedupMode,
     limitEnabled: typeof raw.limitEnabled === 'boolean' ? raw.limitEnabled : fallback.limitEnabled,
     maxPosts:
       typeof raw.maxPosts === 'number' && Number.isFinite(raw.maxPosts) && raw.maxPosts > 0
@@ -170,6 +182,10 @@ function load(): Settings {
             : defaults.sites.danbooru.maxSizeMb,
       blacklist: normalizeStringList(parsed.blacklist),
       whitelist: normalizeStringList(parsed.whitelist),
+      whitelistMode: 'and' as const,
+      includeNoAuthor: false,
+      autoRetry: false,
+      dedupMode: 'local' as const,
       limitEnabled: false,
       maxPosts: 100,
     };
@@ -277,14 +293,6 @@ export function buildTagListFragment(site: Site): string {
   const seen = new Set<string>();
   const parts: string[] = [];
   const form = state.sites[site];
-
-  for (const raw of form.whitelist) {
-    const tag = raw.trim();
-    if (tag && !seen.has(tag)) {
-      seen.add(tag);
-      parts.push(tag);
-    }
-  }
 
   for (const raw of form.blacklist) {
     const tag = raw.trim();

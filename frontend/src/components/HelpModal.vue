@@ -6,6 +6,11 @@ const { t, tm } = useI18n();
 
 const s1 = tm('help.s1') as string[];
 const s3 = tm('help.s3') as string[];
+const s6 = tm('help.s6') as string[];
+const s7 = tm('help.s7') as string[];
+const s9 = tm('help.s9') as string[];
+const s10 = tm('help.s10') as string[];
+const s11 = tm('help.s11') as string[];
 </script>
 
 <template>
@@ -38,6 +43,44 @@ const s3 = tm('help.s3') as string[];
       <section>
         <h3>{{ t('help.h4') }}</h3>
         <p>{{ t('help.s4') }}</p>
+      </section>
+      <section>
+        <h3>{{ t('help.h5') }}</h3>
+        <p>{{ t('help.s5') }}</p>
+      </section>
+      <section>
+        <h3>{{ t('help.h6') }}</h3>
+        <ul>
+          <li v-for="(line, idx) in s6" :key="idx">{{ line }}</li>
+        </ul>
+      </section>
+      <section>
+        <h3>{{ t('help.h7') }}</h3>
+        <ul>
+          <li v-for="(line, idx) in s7" :key="idx">{{ line }}</li>
+        </ul>
+      </section>
+      <section>
+        <h3>{{ t('help.h8') }}</h3>
+        <p>{{ t('help.s8') }}</p>
+      </section>
+      <section>
+        <h3>{{ t('help.h9') }}</h3>
+        <ul>
+          <li v-for="(line, idx) in s9" :key="idx">{{ line }}</li>
+        </ul>
+      </section>
+      <section>
+        <h3>{{ t('help.h10') }}</h3>
+        <ul>
+          <li v-for="(line, idx) in s10" :key="idx">{{ line }}</li>
+        </ul>
+      </section>
+      <section>
+        <h3>{{ t('help.h11') }}</h3>
+        <ul>
+          <li v-for="(line, idx) in s11" :key="idx">{{ line }}</li>
+        </ul>
       </section>
     </div>
   </el-dialog>

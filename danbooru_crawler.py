@@ -96,9 +96,11 @@ def _load_record(record_path: Path) -> dict[str, list[int]]:
 
 
 def _save_record(record_path: Path, record: dict[str, list[int]]) -> None:
-    """将完整下载记录写回 JSON 文件"""
-    with open(record_path, "w", encoding="utf-8") as f:
+    """将完整下载记录原子写回 JSON 文件（先写临时文件再替换，避免写一半崩溃清空原文件）"""
+    tmp = record_path.with_suffix(record_path.suffix + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(record, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, record_path)
 
 
 def load_downloaded(record_path: Path, query: str) -> set[int]:
@@ -107,10 +109,21 @@ def load_downloaded(record_path: Path, query: str) -> set[int]:
     return set(record.get(query, []))
 
 
-def save_downloaded(record_path: Path, query: str, downloaded: set[int]) -> None:
-    """将指定搜索词的已下载 ID 集合持久化"""
+def load_all_downloaded(record_path: Path) -> set[int]:
+    """加载所有搜索词下已下载的帖子 ID（全局去重用）"""
     record = _load_record(record_path)
-    record[query] = sorted(downloaded)
+    all_ids: set[int] = set()
+    for ids in record.values():
+        all_ids.update(ids)
+    return all_ids
+
+
+def save_downloaded(record_path: Path, query: str, post_id: int) -> None:
+    """将单个已下载的帖子 ID 追加到指定搜索词的记录中"""
+    record = _load_record(record_path)
+    ids = set(record.get(query, []))
+    ids.add(post_id)
+    record[query] = sorted(ids)
     _save_record(record_path, record)
 
 
@@ -183,21 +196,35 @@ def fetch_posts_page(query: str, page: int, limit: int = 200,
 
 def fetch_all_posts(query: str, include_deleted: bool,
                     log_fn=print, pause_event=None, stop_event=None,
-                    max_posts: int | None = None) -> list[dict]:
+                    max_posts: int | None = None,
+                    whitelist_tags: list[str] | None = None,
+                    whitelist_mode: str = "and",
+                    include_no_author: bool = False) -> list[dict]:
     """
     分页获取所有搜索结果。
     若 include_deleted=True，额外搜索 'query status:deleted' 并合并去重。
     log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
     pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
     stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
+    whitelist_tags: 白名单标签列表（OR 模式用 ~ 前缀，AND 模式空格拼接）。
+    whitelist_mode: "and" 或 "or"。
+    include_no_author: 额外搜索无作者标签的帖子并合并。
     """
-    # 构建查询列表：
-    # - 正常查询显式排除已删除（-status:deleted），避免账号设置中"显示已删除帖子"
-    #   导致正常查询已包含已删除帖子，从而让第二个 status:deleted 查询被全部去重
-    # - 如需下载已删除则追加 status:deleted 查询
-    queries = [f"{query} -status:deleted"]
+    whitelist_tags = whitelist_tags or []
+
+    # 构建带白名单的查询字符串
+    if whitelist_tags:
+        if whitelist_mode == "or":
+            or_tags = " ".join(f"~{t}" for t in whitelist_tags)
+            base_query = f"{query} {or_tags}".strip()
+        else:
+            base_query = f"{query} {' '.join(whitelist_tags)}".strip()
+    else:
+        base_query = query
+
+    queries = [f"{base_query} -status:deleted"]
     if include_deleted:
-        queries.append(f"{query} status:deleted")
+        queries.append(f"{base_query} status:deleted")
 
     seen_ids: set[int] = set()   # 去重用的已见 ID 集合
     all_posts: list[dict] = []
@@ -206,6 +233,8 @@ def fetch_all_posts(query: str, include_deleted: bool,
 
     log_fn("正在准备搜索任务...")
     log_fn(f"搜索词: {query}")
+    if whitelist_tags:
+        log_fn(f"白名单 ({whitelist_mode.upper()}): {', '.join(whitelist_tags)}")
     if max_posts is not None and max_posts > 0:
         log_fn(f"已开启下载上限，本次最多处理 {max_posts} 张")
 
@@ -221,11 +250,9 @@ def fetch_all_posts(query: str, include_deleted: bool,
         MAX_CONSECUTIVE_FAILS = 3
         log_fn(f"正在搜索 {label}: {q}")
         while True:
-            # 中止优先于暂停：中止时直接退出，不等暂停解除
             if stop_event is not None and stop_event.is_set():
                 log_fn("收到中止信号，停止搜索")
                 return all_posts
-            # 暂停检查：event 被清除时此处阻塞，直到 resume 重新 set
             if pause_event is not None and not wait_for_resume(pause_event, stop_event):
                 log_fn("收到中止信号，停止搜索")
                 return all_posts
@@ -248,7 +275,6 @@ def fetch_all_posts(query: str, include_deleted: bool,
                 log_fn("无更多结果")
                 break
 
-            # 过滤掉已见帖子，实现跨查询去重
             new_posts = [p for p in posts if p.get("id") not in seen_ids]
             if max_posts is not None:
                 remain = max_posts - len(all_posts)
@@ -261,7 +287,6 @@ def fetch_all_posts(query: str, include_deleted: bool,
                 seen_ids.add(p["id"])
             all_posts.extend(new_posts)
 
-            # 按查询类型累计计数
             if is_deleted_query:
                 deleted_count += len(new_posts)
             else:
@@ -273,14 +298,58 @@ def fetch_all_posts(query: str, include_deleted: bool,
                 log_fn(f"已累计 {len(all_posts)} 张，达到上限，准备进入下载")
                 break
 
-            # 返回条数不足一页说明已到末尾
             if len(posts) < 200:
                 break
             page += 1
-            time.sleep(1)   # 遵守 API 速率限制
+            time.sleep(1)
 
         if max_posts is not None and len(all_posts) >= max_posts:
             break
+
+    # ── 无作者额外查询 ──
+    if include_no_author and not (stop_event is not None and stop_event.is_set()):
+        no_auth_query = f"{query} -status:deleted"
+        log_fn(f"正在搜索无作者标签的帖子: {no_auth_query}")
+        page = 1
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            if pause_event is not None and not wait_for_resume(pause_event, stop_event):
+                break
+
+            log_fn(f"  [无作者] 获取第 {page} 页...")
+            try:
+                posts = fetch_posts_page(no_auth_query, page, log_fn=log_fn)
+            except Exception as e:
+                log_fn(f"  [无作者] 第 {page} 页失败 ({e})，跳过")
+                page += 1
+                continue
+
+            if not posts:
+                break
+
+            no_author_posts = [
+                p for p in posts
+                if not p.get("tag_string_artist", "").strip() and p.get("id") not in seen_ids
+            ]
+            if max_posts is not None:
+                remain = max_posts - len(all_posts)
+                if remain <= 0:
+                    break
+                if len(no_author_posts) > remain:
+                    no_author_posts = no_author_posts[:remain]
+
+            for p in no_author_posts:
+                seen_ids.add(p["id"])
+            all_posts.extend(no_author_posts)
+            log_fn(f"  [无作者] 获取到 {len(posts)} 条，无作者且未重复 {len(no_author_posts)} 条")
+
+            if max_posts is not None and len(all_posts) >= max_posts:
+                break
+            if len(posts) < 200:
+                break
+            page += 1
+            time.sleep(1)
 
     log_fn(f"搜索完成：正常图片 {normal_count} 张")
     log_fn(f"搜索完成：已删除图片 {deleted_count} 张")
@@ -383,10 +452,12 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
                   filters=None,
                   on_progress=None,
                   on_fail=None,
-                  download_concurrency: int = 4) -> list[dict]:
+                  download_concurrency: int = 4,
+                  dedup_mode: str = "local") -> list[dict]:
     """
     处理帖子列表：跳过已下载、命名、下载图片并更新记录。
     按 is_deleted 分组处理，先下载正常图片再下载已删除图片，日志分类展示。
+    dedup_mode: "none" 不跳过, "local" 跳过当前搜索词已下载, "global" 跳过所有搜索词已下载。
     """
     from naming import render_split_path
 
@@ -403,7 +474,12 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
     logger.info(f"待处理：正常 {len(normal_posts)} 张，已删除 {len(deleted_posts)} 张")
 
     record_path = output_dir / RECORD_FILENAME
-    downloaded = load_downloaded(record_path, effective_record_query)
+    if dedup_mode == "none":
+        downloaded: set[int] = set()
+    elif dedup_mode == "global":
+        downloaded = load_all_downloaded(record_path)
+    else:
+        downloaded = load_downloaded(record_path, effective_record_query)
     folder_counters: dict[str, int] = {}
     failed_items: list[dict] = []
     controller = AdaptiveConcurrency(initial=max(1, download_concurrency))
@@ -531,7 +607,7 @@ def process_posts(posts: list[dict], query: str, output_dir: Path,
             if success:
                 with record_lock:
                     downloaded.add(post_id)
-                    save_downloaded(record_path, effective_record_query, downloaded)
+                    save_downloaded(record_path, effective_record_query, post_id)
                 logger.debug(f"{prefix} 成功: {filepath.name}")
                 return {"kind": "success"}
 

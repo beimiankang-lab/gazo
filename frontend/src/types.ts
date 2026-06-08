@@ -35,6 +35,11 @@ export interface StartPayload {
   file_template?: string;
   max_posts?: number | null;
   ratings?: string[];
+  whitelist_tags?: string[];
+  whitelist_mode?: 'and' | 'or';
+  include_no_author?: boolean;
+  auto_retry?: boolean;
+  dedup_mode?: string;
   filters?: {
     allow_image: boolean;
     allow_animated: boolean;

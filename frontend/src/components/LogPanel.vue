@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { Site } from '@/types';
 import { useTasks } from '@/useTasks';
+
+const { t } = useI18n();
 
 const props = defineProps<{ currentLog: Site }>();
 const emit = defineEmits<{ 'update:currentLog': [Site] }>();
@@ -33,22 +36,8 @@ const latestLog = computed(() => activeLogs.value[activeLogs.value.length - 1]?.
 const errorLogs = computed(() => activeLogs.value.filter((log) => log.level === 'error' || log.level === 'warn'));
 const runtimeLogs = computed(() => activeLogs.value.filter((log) => log.level !== 'error' && log.level !== 'warn'));
 const statusLabel = computed(() => {
-  switch (activeStatus.value) {
-    case 'running':
-      return '运行中 / Running';
-    case 'paused':
-      return '已暂停 / Paused';
-    case 'stopping':
-      return '中止中 / Stopping';
-    case 'done':
-      return '已完成 / Done';
-    case 'stopped':
-      return '已中止 / Stopped';
-    case 'error':
-      return '出错 / Error';
-    default:
-      return '待命 / Idle';
-  }
+  const status = activeStatus.value || 'idle';
+  return t(`status.${status}`);
 });
 
 function switchLog(site: Site) {
@@ -76,52 +65,52 @@ function onRetry() {
           :class="{ active: currentLog === site }"
           @click="switchLog(site)"
         >
-          {{ site === 'danbooru' ? 'Danbooru' : 'Yande.re' }}
+          {{ site === 'danbooru' ? t('site.danbooru') : t('site.yande') }}
         </button>
       </div>
       <div class="header-actions">
         <span class="status-pill" :class="`status-${activeStatus}`">{{ statusLabel }}</span>
         <button v-if="showRetry" class="tool-btn warn" @click="onRetry">
-          Retry {{ failedItems.length }}
+          {{ t('log.retryBtnText', { n: failedItems.length }) }}
         </button>
-        <button class="tool-btn" @click="clearLog">Clear</button>
+        <button class="tool-btn" @click="clearLog">{{ t('log.clearLog') }}</button>
       </div>
     </div>
 
     <div class="log-body">
       <div class="summary-card">
         <div class="summary-row">
-          <span class="summary-label">当前搜索词 / Query</span>
+          <span class="summary-label">{{ t('log.queryLabel') }}</span>
           <span class="summary-value">{{ activeQuery || '-' }}</span>
         </div>
         <div class="summary-row">
-          <span class="summary-label">最近状态 / Latest</span>
-          <span class="summary-value">{{ latestLog || '暂无日志 / No logs yet' }}</span>
+          <span class="summary-label">{{ t('log.latestLabel') }}</span>
+          <span class="summary-value">{{ latestLog || t('log.noLogs') }}</span>
         </div>
       </div>
 
       <div v-if="isActive || showRetry" class="progress-section">
         <div class="progress-top">
-          <span>下载进度 / Progress</span>
+          <span>{{ t('log.progressLabel') }}</span>
           <span>{{ progress.current }} / {{ progress.total }}</span>
         </div>
         <div class="progress-bar">
           <div class="progress-fill" :style="{ width: `${progressPercent}%` }" />
         </div>
         <div v-if="isActive && progress.total === 0" class="prepare-hint">
-          正在准备任务，请稍候。你会在下面看到运行日志，例如正在获取页数、整理下载队列、统计图片数量。
+          {{ t('log.prepareHint') }}
         </div>
       </div>
 
       <div class="log-section">
         <div class="section-header">
           <button class="section-toggle" @click="showRuntime = !showRuntime">
-            {{ showRuntime ? 'Hide' : 'Show' }} 运行日志 / Runtime Log
+            {{ showRuntime ? t('log.hideRuntime') : t('log.showRuntime') }}
           </button>
-          <button v-if="showRuntime && runtimeLogs.length > 0" class="scroll-btn" @click="scrollToBottom(runtimeScrollRef)">Scroll to bottom</button>
+          <button v-if="showRuntime && runtimeLogs.length > 0" class="scroll-btn" @click="scrollToBottom(runtimeScrollRef)">{{ t('log.scrollBottom') }}</button>
         </div>
         <div v-if="runtimeLogs.length === 0 && !isActive" class="empty-box">
-          这里会显示下载前准备、抓取页数、统计数量、开始下载等实时过程。
+          {{ t('log.emptyRuntime') }}
         </div>
         <div v-else-if="showRuntime" ref="runtimeScrollRef" class="log-list runtime-scroll">
           <div
@@ -138,9 +127,9 @@ function onRetry() {
       <div v-if="errorLogs.length > 0" class="log-section error-section">
         <div class="section-header">
           <button class="section-toggle" @click="showErrors = !showErrors">
-            {{ showErrors ? 'Hide' : 'Show' }} Warnings / Errors ({{ errorLogs.length }})
+            {{ showErrors ? t('log.hideWarnErr', { n: errorLogs.length }) : t('log.showWarnErr', { n: errorLogs.length }) }}
           </button>
-          <button v-if="showErrors" class="scroll-btn" @click="scrollToBottom(errorScrollRef)">Scroll to bottom</button>
+          <button v-if="showErrors" class="scroll-btn" @click="scrollToBottom(errorScrollRef)">{{ t('log.scrollBottom') }}</button>
         </div>
         <div v-if="showErrors" ref="errorScrollRef" class="log-list error-scroll">
           <div
