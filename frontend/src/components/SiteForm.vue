@@ -214,7 +214,7 @@ function onStart() {
           <el-switch
             v-model="showTagRules"
             :disabled="isActive"
-            @change="(value) => { if (!value) { form.whitelist = []; form.blacklist = []; } }"
+            @change="(value) => { if (!value) { form.whitelist = []; form.blacklist = []; form.includeNoAuthor = false; } }"
           />
         </div>
         <div class="tag-count">{{ tagSummary }}</div>
