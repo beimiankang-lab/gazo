@@ -59,13 +59,6 @@ watch(
   },
 );
 
-watch(
-  () => form.whitelist.length,
-  (len) => {
-    if (len === 0) form.includeNoAuthor = false;
-  },
-);
-
 function onQueryInput(value: string | number | undefined) {
   if (!isActive.value) form.query = String(value ?? '');
 }
@@ -250,14 +243,14 @@ function onStart() {
               </el-radio-group>
               <p class="section-note">{{ t('form.whitelistModeHint') }}</p>
             </div>
+          </div>
 
-            <div class="switch-row" style="margin-top: 4px;">
-              <div>
-                <label class="sub-title">{{ t('form.includeNoAuthor') }}</label>
-                <p class="section-note">{{ t('form.includeNoAuthorHint') }}</p>
-              </div>
-              <el-switch v-model="form.includeNoAuthor" :disabled="isActive || form.whitelist.length === 0" />
+          <div class="switch-row">
+            <div>
+              <label class="sub-title">{{ t('form.includeNoAuthor') }}</label>
+              <p class="section-note">{{ t('form.includeNoAuthorHint') }}</p>
             </div>
+            <el-switch v-model="form.includeNoAuthor" :disabled="isActive" />
           </div>
 
           <div class="tag-card">
