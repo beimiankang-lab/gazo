@@ -59,6 +59,13 @@ watch(
   },
 );
 
+watch(
+  () => form.whitelist.length,
+  (len) => {
+    if (len === 0) form.includeNoAuthor = false;
+  },
+);
+
 function onQueryInput(value: string | number | undefined) {
   if (!isActive.value) form.query = String(value ?? '');
 }
@@ -249,7 +256,7 @@ function onStart() {
                 <label class="sub-title">{{ t('form.includeNoAuthor') }}</label>
                 <p class="section-note">{{ t('form.includeNoAuthorHint') }}</p>
               </div>
-              <el-switch v-model="form.includeNoAuthor" :disabled="isActive" />
+              <el-switch v-model="form.includeNoAuthor" :disabled="isActive || form.whitelist.length === 0" />
             </div>
           </div>
 
