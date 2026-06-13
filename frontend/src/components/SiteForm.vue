@@ -24,7 +24,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const form = getSiteSettings(props.site);
 const showRatingHint = ref(false);
-const showTagRules = ref(form.whitelist.length > 0 || form.blacklist.length > 0);
+const showTagRules = ref(form.whitelist.length > 0 || form.blacklist.length > 0 || form.includeNoAuthor);
 
 defineExpose({ triggerStart: () => onStart() });
 

@@ -5,12 +5,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-import requests
+import http_client
 
 RETRYABLE_STATUSES = {421, 429, 502, 503}
 RETRYABLE_EXCEPTIONS = (
-    requests.exceptions.Timeout,
-    requests.exceptions.ConnectionError,
+    http_client.Timeout,
+    http_client.ConnectionError,
 )
 
 
@@ -41,14 +41,14 @@ def backoff_delay(attempt: int, base_delay: float = 1.0) -> float:
 
 
 def retryable_request(
-    send: Callable[[], requests.Response],
+    send: Callable[[], http_client.Response],
     *,
     attempts: int,
     pause_event=None,
     stop_event=None,
     on_retryable: Callable[[dict[str, Any]], None] | None = None,
     base_delay: float = 1.0,
-) -> requests.Response | None:
+) -> http_client.Response | None:
     last_error: Exception | None = None
 
     for attempt in range(1, attempts + 1):

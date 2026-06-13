@@ -71,8 +71,8 @@ export default {
     whitelistModeAnd: 'AND（全部匹配）',
     whitelistModeOr: 'OR（任一匹配）',
     whitelistModeHint: 'AND：帖子必须同时包含所有白名单标签。OR：帖子包含任意一个白名单标签即可。',
-    includeNoAuthor: '包含无作者帖子',
-    includeNoAuthorHint: '同时下载匹配搜索词但没有作者标签的帖子。',
+    includeNoAuthor: '只下载无作者帖子',
+    includeNoAuthorHint: '开启后只下载没有作者标签的帖子（跳过常规搜索结果）。',
     blacklist: '黑名单（必须排除）',
     blacklistPlaceholder: '输入标签后回车，例: loli',
     blacklistHint: '排除包含任意一个标签的图片，搜索阶段就过滤掉，节省时间和带宽。',
@@ -258,7 +258,7 @@ export default {
     s6: [
       '黑名单：包含任意黑名单标签的帖子会被排除，使用服务端过滤（-前缀），节省带宽。',
       '白名单：只保留匹配白名单标签的帖子。AND 模式要求全部匹配，OR 模式要求任一匹配即可。',
-      '包含无作者帖子：下载白名单匹配的帖子同时，也下载匹配搜索词但没有作者标签的帖子。',
+      '只下载无作者帖子：开启后只下载没有作者标签的帖子（跳过常规搜索结果）。可与白名单/黑名单组合使用。',
     ],
     h7: '下载去重',
     s7: [

@@ -323,7 +323,7 @@ def api_save_config():
 
 @app.route("/api/test_danbooru", methods=["POST"])
 def api_test_danbooru():
-    import requests as req
+    import http_client as req
     data = request.get_json(force=True)
     login   = (data.get("danbooru_login") or "").strip()
     api_key = (data.get("danbooru_api_key") or "").strip()
@@ -332,7 +332,6 @@ def api_test_danbooru():
         r = req.get(
             "https://danbooru.donmai.us/profile.json",
             auth=auth, timeout=10,
-            headers={"User-Agent": "danbooru-crawler/1.0 (personal use)"},
         )
         if r.status_code == 200:
             return jsonify({"ok": True, "username": r.json().get("name", "")})

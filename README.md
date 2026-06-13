@@ -121,7 +121,7 @@ Open the URL printed by Vite (defaults to `http://127.0.0.1:5174`). Changes to V
 │  ▼ Tag rules       │                                     │
 │  Whitelist [AND|OR]│                                     │
 │  Blacklist         │                                     │
-│  ☐ No-author posts │                                     │
+│  ☐ Only no-author  │                                     │
 │                     │                                     │
 │  ▼ File type/size  │                                     │
 │  ☑Images ☑GIF ☑Vid│                                     │
@@ -148,7 +148,7 @@ Open the URL printed by Vite (defaults to `http://127.0.0.1:5174`). Changes to V
 | Tab corner dot | Small dot on the top-right of a tab while its task is active — handy for tracking state across tabs |
 | Help button | The "? Help" button in the top-right opens a full in-app guide |
 | Rating filter | Checkboxes for General / Sensitive / Questionable / Explicit — only checked ratings are downloaded |
-| Tag rules | Whitelist (AND/OR mode) and Blacklist to include or exclude posts by tags. "No-author posts" checkbox for downloading authorless images |
+| Tag rules | Whitelist (AND/OR mode) and Blacklist to include or exclude posts by tags. "Only no-author posts" toggle restricts downloads to posts without an artist tag |
 | File type/size | Toggle image / GIF / video types, optional max file size limit |
 | Auto-retry | Automatically retry failed downloads once after completion |
 | Dedup mode | Three options: no skip / current query only / global (all queries) |
@@ -166,14 +166,7 @@ Anonymous Danbooru access is limited (safe-rated content only, 20 posts per page
 2. Open your profile → **API Key** page and generate a key
    - **Permissions**: picking `All` is the easy path. For least-privilege, pick `Scoped` and tick only `posts:index` — this project only hits `/posts.json`.
    - Downloading "deleted" posts depends on your **account level** (Gold+ is typically required). This is unrelated to API-key scopes.
-3. Copy `.env.example` at the project root to `.env` and fill in your credentials:
-
-```bash
-DANBOORU_LOGIN=your-username
-DANBOORU_API_KEY=your-api-key
-```
-
-> `.env` is already in `.gitignore` and will not be pushed to GitHub. It is loaded automatically on startup.
+3. In the running app, open **Settings → API Keys**, paste your username and API key, and click **Save**. Credentials are stored in `gazo_config.json` next to the executable.
 
 ### 2. Search syntax
 
@@ -255,7 +248,7 @@ Both sites support tag-based filtering in addition to the main search tags:
 - **Whitelist**: only posts matching whitelist tags are kept. Two modes:
   - **AND** — the post must contain *all* whitelist tags
   - **OR** — the post must contain *at least one* whitelist tag
-- **Include posts without authors**: when whitelist is active, checking this also downloads posts that match the main query but have no artist tag.
+- **Only no-author posts**: when enabled, **only** posts without an artist tag are downloaded (regular results are skipped). Can be combined with whitelist/blacklist.
 
 Whitelist tags are sent as structured filters to the backend, not embedded in the search box. The search box always shows your original query.
 
@@ -360,7 +353,6 @@ D:\crawler\
 ├── README.zh-TW.md             # 繁體中文
 ├── README.ja.md                # 日本語
 ├── LICENSE                     # MIT License
-├── .env.example                # Env-var template
 ├── .gitignore                  # Git ignore rules
 ├── frontend/                   # Vue 3 + Vite frontend
 │   ├── public/
@@ -404,7 +396,7 @@ Follow the prompts:
 ## FAQ
 
 **Q: I get a 403 at runtime.**
-A: Anonymous Danbooru access is limited. Create `.env` in the project root and fill in credentials (see `.env.example`).
+A: Anonymous Danbooru access is limited. Open **Settings → API Keys** in the app and save your Danbooru username + API key.
 
 **Q: Downloads feel slow.**
 A: There is a 0.5–1 s delay between images to stay under the sites' rate limits. This is intentional.

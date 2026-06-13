@@ -10,7 +10,7 @@ import time
 import json
 import logging
 import threading
-import requests
+import http_client
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
 from download_runtime import AdaptiveConcurrency, wait_for_resume
@@ -18,9 +18,8 @@ from naming import PostCtx, Filters, render_path
 
 # ── 站点基础配置 ──────────────────────────────────────────────────────────────
 BASE_URL = "https://yande.re"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+# 不覆盖 User-Agent：curl_cffi 的 impersonate 会注入与 TLS 指纹一致的 UA。
+HEADERS: dict[str, str] = {}
 
 # Moebooru 标签类型常量
 TAG_TYPE_GENERAL = 0    # 通用标签
@@ -31,14 +30,14 @@ TAG_TYPE_CIRCLE = 5     # 社团
 
 # ── 全局 Session ────────────────────────────────────────────────────────────────
 
-def _create_session() -> requests.Session:
-    s = requests.Session()
+def _create_session() -> http_client.Session:
+    s = http_client.Session()
     s.headers.update(HEADERS)
     return s
 
-_session: requests.Session | None = None
+_session: http_client.Session | None = None
 
-def _get_session() -> requests.Session:
+def _get_session() -> http_client.Session:
     global _session
     if _session is None:
         _session = _create_session()
@@ -175,15 +174,15 @@ def fetch_posts_page(query: str, page: int, limit: int = 100,
         try:
             resp = _get_session().get(url, params=params, timeout=30)
             if resp.status_code in _RETRYABLE_STATUS:
-                raise requests.HTTPError(
+                raise http_client.HTTPError(
                     f"HTTP {resp.status_code}", response=resp)
             resp.raise_for_status()
             return resp.json()
-        except (requests.ConnectionError, requests.Timeout,
-                requests.HTTPError) as e:
+        except (http_client.ConnectionError, http_client.Timeout,
+                http_client.HTTPError) as e:
             last_exc = e
-            if isinstance(e, requests.HTTPError):
-                code = getattr(e.response, "status_code", None)
+            if isinstance(e, http_client.HTTPError):
+                code = getattr(getattr(e, "response", None), "status_code", None)
                 if code is not None and code not in _RETRYABLE_STATUS:
                     raise
             if attempt >= max_retries:
@@ -257,7 +256,7 @@ def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None,
     ratings: Yande.re 评级列表。多个评级时分次获取再合并去重（API 不支持逗号分隔多评级）。
     whitelist_tags: 白名单标签列表。
     whitelist_mode: "and" 或 "or"（Yande.re 不支持 ~ 语法，OR 通过多次查询实现）。
-    include_no_author: 额外搜索无作者标签的帖子并合并。
+    include_no_author: 设为 True 时只搜索无作者标签的帖子（跳过常规搜索）。
     log_fn: 日志输出函数。
     pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
     stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
@@ -296,16 +295,17 @@ def fetch_all_posts(query: str, log_fn=print, pause_event=None, stop_event=None,
     seen_ids: set[int] = set()
     all_posts: list[dict] = []
 
-    for q in api_queries:
-        if stop_event is not None and stop_event.is_set():
-            break
-        log_fn(f"  → 获取: {q}")
-        posts = _fetch_all_posts_single(q, log_fn, pause_event, stop_event, max_posts)
-        new_posts = [p for p in posts if p["id"] not in seen_ids]
-        for p in new_posts:
-            seen_ids.add(p["id"])
-        log_fn(f"  获取 {len(posts)} 张，去重后新增 {len(new_posts)} 张")
-        all_posts.extend(new_posts)
+    if not include_no_author:
+        for q in api_queries:
+            if stop_event is not None and stop_event.is_set():
+                break
+            log_fn(f"  → 获取: {q}")
+            posts = _fetch_all_posts_single(q, log_fn, pause_event, stop_event, max_posts)
+            new_posts = [p for p in posts if p["id"] not in seen_ids]
+            for p in new_posts:
+                seen_ids.add(p["id"])
+            log_fn(f"  获取 {len(posts)} 张，去重后新增 {len(new_posts)} 张")
+            all_posts.extend(new_posts)
 
     # ── 无作者额外查询 ──
     if include_no_author and not (stop_event is not None and stop_event.is_set()):
@@ -497,7 +497,7 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
             return False
 
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=timeout, stream=True)
+        resp = http_client.get(url, headers=HEADERS, timeout=timeout, stream=True)
         resp.raise_for_status()
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "wb") as f:

@@ -10,40 +10,35 @@ import time
 import json
 import logging
 import threading
-import requests
+import http_client
 from pathlib import Path
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from naming import PostCtx, Filters, render_path
 from download_runtime import AdaptiveConcurrency, wait_for_resume
 
-# 加载项目根目录的 .env 文件到环境变量（若存在）
-try:
-    from dotenv import load_dotenv
-    load_dotenv(Path(__file__).parent / ".env")
-except ImportError:
-    pass
-
 # ── 站点基础配置 ──────────────────────────────────────────────────────────────
 BASE_URL = "https://danbooru.donmai.us"
-HEADERS = {
-    # Danbooru 要求 User-Agent 包含联系方式
-    "User-Agent": "danbooru-crawler/1.0 (personal use)"
-}
+# 不覆盖 User-Agent：curl_cffi 的 impersonate 会注入与 TLS 指纹一致的 UA，
+# 自定义 UA 会被 Cloudflare 判定为机器人。
+HEADERS: dict[str, str] = {}
 
 # 下载记录文件名（与 yande 分开，防止互相覆盖）
 RECORD_FILENAME = ".downloaded_danbooru.json"
 LOG_FILENAME = "download.log"
 
+# Danbooru API 对 page 数字翻页有硬限制：page > 1000 一律 410，与账号等级无关
+DANBOORU_MAX_PAGE = 1000
+
 def get_auth() -> tuple[str, str] | None:
-    """读取凭据：gazo_config.json > 环境变量，每次调用时读取以支持运行时更新"""
+    """读取凭据：gazo_config.json，每次调用时读取以支持运行时更新"""
     try:
         cfg_path = Path(__file__).parent / "gazo_config.json"
         cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
-        login   = cfg.get("danbooru_login")   or os.environ.get("DANBOORU_LOGIN", "")
-        api_key = cfg.get("danbooru_api_key") or os.environ.get("DANBOORU_API_KEY", "")
+        login   = cfg.get("danbooru_login")   or ""
+        api_key = cfg.get("danbooru_api_key") or ""
     except Exception:
-        login   = os.environ.get("DANBOORU_LOGIN", "")
-        api_key = os.environ.get("DANBOORU_API_KEY", "")
+        login   = ""
+        api_key = ""
     return (login, api_key) if login and api_key else None
 
 
@@ -167,20 +162,20 @@ def fetch_posts_page(query: str, page: int, limit: int = 200,
     last_exc: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
-            resp = requests.get(url, params=params, headers=HEADERS,
-                                auth=get_auth(), timeout=30)
+            resp = http_client.get(url, params=params, headers=HEADERS,
+                                   auth=get_auth(), timeout=30)
             if resp.status_code in _RETRYABLE_STATUS:
                 # 服务端瞬时错误：当作可重试异常处理
-                raise requests.HTTPError(
+                raise http_client.HTTPError(
                     f"HTTP {resp.status_code}", response=resp)
             resp.raise_for_status()
             return resp.json()
-        except (requests.ConnectionError, requests.Timeout,
-                requests.HTTPError) as e:
+        except (http_client.ConnectionError, http_client.Timeout,
+                http_client.HTTPError) as e:
             last_exc = e
             # 非可重试的 HTTP 错误（如 401/403/404）直接抛
-            if isinstance(e, requests.HTTPError):
-                code = getattr(e.response, "status_code", None)
+            if isinstance(e, http_client.HTTPError):
+                code = getattr(getattr(e, "response", None), "status_code", None)
                 if code is not None and code not in _RETRYABLE_STATUS:
                     raise
             if attempt >= max_retries:
@@ -194,70 +189,38 @@ def fetch_posts_page(query: str, page: int, limit: int = 200,
     raise last_exc if last_exc else RuntimeError("fetch_posts_page failed")
 
 
-def fetch_all_posts(query: str, include_deleted: bool,
-                    log_fn=print, pause_event=None, stop_event=None,
-                    max_posts: int | None = None,
-                    whitelist_tags: list[str] | None = None,
-                    whitelist_mode: str = "and",
-                    include_no_author: bool = False) -> list[dict]:
+def _fetch_all_posts_single(query: str, log_fn, pause_event, stop_event,
+                             max_posts: int | None, include_deleted: bool,
+                             seen_ids: set[int]) -> tuple[list[dict], int, int]:
     """
-    分页获取所有搜索结果。
-    若 include_deleted=True，额外搜索 'query status:deleted' 并合并去重。
-    log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
-    pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
-    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
-    whitelist_tags: 白名单标签列表（OR 模式用 ~ 前缀，AND 模式空格拼接）。
-    whitelist_mode: "and" 或 "or"。
-    include_no_author: 额外搜索无作者标签的帖子并合并。
+    分页获取单个 query 的所有结果（内部辅助函数）。
+    返回 (posts, normal_count, deleted_count)。
     """
-    whitelist_tags = whitelist_tags or []
-
-    # 构建带白名单的查询字符串
-    if whitelist_tags:
-        if whitelist_mode == "or":
-            or_tags = " ".join(f"~{t}" for t in whitelist_tags)
-            base_query = f"{query} {or_tags}".strip()
-        else:
-            base_query = f"{query} {' '.join(whitelist_tags)}".strip()
-    else:
-        base_query = query
-
-    queries = [f"{base_query} -status:deleted"]
+    queries = [f"{query} -status:deleted"]
     if include_deleted:
-        queries.append(f"{base_query} status:deleted")
+        queries.append(f"{query} status:deleted")
 
-    seen_ids: set[int] = set()   # 去重用的已见 ID 集合
     all_posts: list[dict] = []
-    normal_count = 0             # 正常帖子计数
-    deleted_count = 0            # 已删除帖子计数
-
-    log_fn("正在准备搜索任务...")
-    log_fn(f"搜索词: {query}")
-    if whitelist_tags:
-        log_fn(f"白名单 ({whitelist_mode.upper()}): {', '.join(whitelist_tags)}")
-    if max_posts is not None and max_posts > 0:
-        log_fn(f"已开启下载上限，本次最多处理 {max_posts} 张")
+    normal_count = 0
+    deleted_count = 0
 
     for q in queries:
         if stop_event is not None and stop_event.is_set():
-            log_fn("收到中止信号，停止搜索")
-            return all_posts
+            break
 
         is_deleted_query = "status:deleted" in q and "-status:deleted" not in q
         label = "(已删除)" if is_deleted_query else "(正常)"
         page = 1
         consecutive_fails = 0
         MAX_CONSECUTIVE_FAILS = 3
-        log_fn(f"正在搜索 {label}: {q}")
+
         while True:
             if stop_event is not None and stop_event.is_set():
-                log_fn("收到中止信号，停止搜索")
-                return all_posts
+                break
             if pause_event is not None and not wait_for_resume(pause_event, stop_event):
-                log_fn("收到中止信号，停止搜索")
-                return all_posts
+                break
 
-            log_fn(f"  获取第 {page} 页...")
+            log_fn(f"  [内部] 获取第 {page} 页{label}...")
             try:
                 posts = fetch_posts_page(q, page, log_fn=log_fn)
                 consecutive_fails = 0
@@ -267,19 +230,20 @@ def fetch_all_posts(query: str, include_deleted: bool,
                 if consecutive_fails >= MAX_CONSECUTIVE_FAILS:
                     log_fn(f"  连续 {MAX_CONSECUTIVE_FAILS} 页全部失败，疑似网络/节点问题，停止当前查询。建议更换网络后重试。")
                     break
+                if page >= DANBOORU_MAX_PAGE:
+                    log_fn(f"  已达到 Danbooru 翻页上限（page={DANBOORU_MAX_PAGE}），停止翻页")
+                    break
                 page += 1
                 time.sleep(3)
                 continue
 
             if not posts:
-                log_fn("无更多结果")
                 break
 
             new_posts = [p for p in posts if p.get("id") not in seen_ids]
             if max_posts is not None:
                 remain = max_posts - len(all_posts)
                 if remain <= 0:
-                    log_fn(f"已达到上限 {max_posts} 张，停止继续翻页")
                     break
                 if len(new_posts) > remain:
                     new_posts = new_posts[:remain]
@@ -295,61 +259,142 @@ def fetch_all_posts(query: str, include_deleted: bool,
             log_fn(f"  获取到 {len(posts)} 条，新增 {len(new_posts)} 条")
 
             if max_posts is not None and len(all_posts) >= max_posts:
-                log_fn(f"已累计 {len(all_posts)} 张，达到上限，准备进入下载")
                 break
 
             if len(posts) < 200:
                 break
             page += 1
+            if page > DANBOORU_MAX_PAGE:
+                log_fn(f"  已达到 Danbooru 翻页上限（page={DANBOORU_MAX_PAGE}），停止翻页")
+                break
             time.sleep(1)
 
-        if max_posts is not None and len(all_posts) >= max_posts:
-            break
+    return all_posts, normal_count, deleted_count
 
-    # ── 无作者额外查询 ──
-    if include_no_author and not (stop_event is not None and stop_event.is_set()):
-        no_auth_query = f"{query} -status:deleted"
-        log_fn(f"正在搜索无作者标签的帖子: {no_auth_query}")
-        page = 1
-        while True:
+
+def fetch_all_posts(query: str, include_deleted: bool,
+                    log_fn=print, pause_event=None, stop_event=None,
+                    max_posts: int | None = None,
+                    whitelist_tags: list[str] | None = None,
+                    whitelist_mode: str = "and",
+                    include_no_author: bool = False) -> list[dict]:
+    """
+    分页获取所有搜索结果。
+    若 include_deleted=True，额外搜索 'query status:deleted' 并合并去重。
+    OR 模式：每个白名单标签拆成独立查询再合并去重（Danbooru 免费账号不支持 ~ 语法）。
+    log_fn: 日志输出函数，默认 print，前端调用时可传入队列写入函数。
+    pause_event: threading.Event，被清除时任务会在翻页前阻塞等待（暂停）。
+    stop_event: threading.Event，被 set 时函数会尽快返回已搜索到的结果（中止）。
+    whitelist_tags: 白名单标签列表（OR 模式拆分查询，AND 模式空格拼接）。
+    whitelist_mode: "and" 或 "or"。
+    include_no_author: 设为 True 时只搜索无作者标签的帖子（跳过常规搜索）。
+    """
+    whitelist_tags = whitelist_tags or []
+
+    log_fn("正在准备搜索任务...")
+    log_fn(f"搜索词: {query}")
+    if whitelist_tags:
+        log_fn(f"白名单 ({whitelist_mode.upper()}): {', '.join(whitelist_tags)}")
+    if max_posts is not None and max_posts > 0:
+        log_fn(f"已开启下载上限，本次最多处理 {max_posts} 张")
+
+    # ── 构建 API 查询列表 ──
+    api_queries: list[str] = []
+
+    if whitelist_tags and whitelist_mode == "or":
+        for tag in whitelist_tags:
+            api_queries.append(f"{query} {tag}")
+    else:
+        if whitelist_tags:
+            api_queries.append(f"{query} {' '.join(whitelist_tags)}")
+        else:
+            api_queries.append(query)
+
+    # ── 执行所有查询，合并去重 ──
+    seen_ids: set[int] = set()
+    all_posts: list[dict] = []
+    normal_count = 0
+    deleted_count = 0
+
+    if not include_no_author:
+        for q in api_queries:
             if stop_event is not None and stop_event.is_set():
                 break
-            if pause_event is not None and not wait_for_resume(pause_event, stop_event):
+            log_fn(f"正在搜索: {q}")
+            posts, nc, dc = _fetch_all_posts_single(
+                q, log_fn, pause_event, stop_event, max_posts, include_deleted, seen_ids)
+            normal_count += nc
+            deleted_count += dc
+            all_posts.extend(posts)
+
+    # ── 无作者查询（仅搜无作者标签的帖子）──
+    if include_no_author and not (stop_event is not None and stop_event.is_set()):
+        log_fn("正在搜索无作者标签的帖子...")
+        for q in api_queries:
+            if stop_event is not None and stop_event.is_set():
                 break
-
-            log_fn(f"  [无作者] 获取第 {page} 页...")
-            try:
-                posts = fetch_posts_page(no_auth_query, page, log_fn=log_fn)
-            except Exception as e:
-                log_fn(f"  [无作者] 第 {page} 页失败 ({e})，跳过")
-                page += 1
-                continue
-
-            if not posts:
-                break
-
-            no_author_posts = [
-                p for p in posts
-                if not p.get("tag_string_artist", "").strip() and p.get("id") not in seen_ids
-            ]
-            if max_posts is not None:
-                remain = max_posts - len(all_posts)
-                if remain <= 0:
+            queries = [f"{q} -status:deleted"]
+            if include_deleted:
+                queries.append(f"{q} status:deleted")
+            for no_auth_query in queries:
+                if stop_event is not None and stop_event.is_set():
                     break
-                if len(no_author_posts) > remain:
-                    no_author_posts = no_author_posts[:remain]
+                is_deleted_query = "status:deleted" in no_auth_query and "-status:deleted" not in no_auth_query
+                label = "(已删除)" if is_deleted_query else ""
+                page = 1
+                while True:
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    if pause_event is not None and not wait_for_resume(pause_event, stop_event):
+                        break
 
-            for p in no_author_posts:
-                seen_ids.add(p["id"])
-            all_posts.extend(no_author_posts)
-            log_fn(f"  [无作者] 获取到 {len(posts)} 条，无作者且未重复 {len(no_author_posts)} 条")
+                    log_fn(f"  [无作者] 获取第 {page} 页{label}...")
+                    try:
+                        posts = fetch_posts_page(no_auth_query, page, log_fn=log_fn)
+                    except Exception as e:
+                        log_fn(f"  [无作者] 第 {page} 页失败 ({e})，跳过")
+                        if page >= DANBOORU_MAX_PAGE:
+                            log_fn(f"  已达到 Danbooru 翻页上限（page={DANBOORU_MAX_PAGE}），停止翻页")
+                            break
+                        page += 1
+                        continue
 
-            if max_posts is not None and len(all_posts) >= max_posts:
-                break
-            if len(posts) < 200:
-                break
-            page += 1
-            time.sleep(1)
+                    if not posts:
+                        break
+
+                    no_author_posts = [
+                        p for p in posts
+                        if not p.get("tag_string_artist", "").strip() and p.get("id") not in seen_ids
+                    ]
+                    if max_posts is not None:
+                        remain = max_posts - len(all_posts)
+                        if remain <= 0:
+                            break
+                        if len(no_author_posts) > remain:
+                            no_author_posts = no_author_posts[:remain]
+
+                    for p in no_author_posts:
+                        seen_ids.add(p["id"])
+                    all_posts.extend(no_author_posts)
+                    normal_count += len(no_author_posts)
+                    log_fn(f"  [无作者] 获取到 {len(posts)} 条，无作者且未重复 {len(no_author_posts)} 条")
+
+                    if max_posts is not None and len(all_posts) >= max_posts:
+                        break
+                    if len(posts) < 200:
+                        break
+                    page += 1
+                    if page > DANBOORU_MAX_PAGE:
+                        log_fn(f"  已达到 Danbooru 翻页上限（page={DANBOORU_MAX_PAGE}），停止翻页")
+                        break
+                    time.sleep(1)
+
+    # 按 id 倒序
+    all_posts.sort(key=lambda p: p["id"], reverse=True)
+
+    # max_posts 截断
+    if max_posts is not None and max_posts > 0 and len(all_posts) > max_posts:
+        all_posts = all_posts[:max_posts]
 
     log_fn(f"搜索完成：正常图片 {normal_count} 张")
     log_fn(f"搜索完成：已删除图片 {deleted_count} 张")
@@ -421,7 +466,7 @@ def download_image(url: str, filepath: Path, logger: logging.Logger,
             return False
 
     try:
-        resp = requests.get(url, headers=HEADERS, auth=get_auth(), timeout=timeout, stream=True)
+        resp = http_client.get(url, headers=HEADERS, auth=get_auth(), timeout=timeout, stream=True)
         resp.raise_for_status()
         filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "wb") as f:
@@ -730,7 +775,7 @@ def main():
     print("=== danbooru.donmai.us 图片爬虫 ===")
     if not get_auth():
         print("\n[提示] 未配置 API 认证，可能遇到 403 错误。")
-        print("  请通过 Web 界面设置页面填写 Danbooru 凭据，或创建 .env 文件。")
+        print("  请通过 Web 界面设置页面填写 Danbooru 凭据。")
         print("  API key 获取地址: https://danbooru.donmai.us/users/home\n")
     print("1. 开始下载")
     print("2. 重置指定搜索词的下载记录")

@@ -46,6 +46,5 @@ Thumbs.db
 desktop.ini
 
 # 配置（如有敏感信息另存）
-.env
 config.local.py
 gazo_config.json

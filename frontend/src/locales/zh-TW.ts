@@ -71,8 +71,8 @@ export default {
     whitelistModeAnd: 'AND（全部符合）',
     whitelistModeOr: 'OR（任一符合）',
     whitelistModeHint: 'AND：貼文必須同時包含所有白名單標籤。OR：貼文包含任意一個白名單標籤即可。',
-    includeNoAuthor: '包含無作者貼文',
-    includeNoAuthorHint: '同時下載符合搜尋詞但沒有作者標籤的貼文。',
+    includeNoAuthor: '只下載無作者貼文',
+    includeNoAuthorHint: '啟用後只下載沒有作者標籤的貼文（跳過常規搜尋結果）。',
     blacklist: '黑名單（必須排除）',
     blacklistPlaceholder: '輸入標籤後按 Enter，例: loli',
     blacklistHint: '排除包含任一標籤的圖片，於搜尋階段就過濾掉，節省時間與頻寬。',
@@ -258,7 +258,7 @@ export default {
     s6: [
       '黑名單：包含任意黑名單標籤的貼文會被排除，使用伺服端過濾（-前綴），節省頻寬。',
       '白名單：只保留匹配白名單標籤的貼文。AND 模式要求全部符合，OR 模式要求任一符合即可。',
-      '包含無作者貼文：下載白名單匹配貼文的同時，也下載符合搜尋詞但沒有作者標籤的貼文。',
+      '只下載無作者貼文：啟用後只下載沒有作者標籤的貼文（跳過常規搜尋結果）。可與白名單/黑名單組合使用。',
     ],
     h7: '下載去重',
     s7: [

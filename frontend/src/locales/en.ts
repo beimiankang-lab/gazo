@@ -71,8 +71,8 @@ export default {
     whitelistModeAnd: 'AND (all required)',
     whitelistModeOr: 'OR (any match)',
     whitelistModeHint: 'AND: post must have ALL whitelist tags. OR: post must have ANY whitelist tag.',
-    includeNoAuthor: 'Include posts without author',
-    includeNoAuthorHint: 'Also download posts that match the search but have no artist tag.',
+    includeNoAuthor: 'Only no-author posts',
+    includeNoAuthorHint: 'When enabled, ONLY download posts without an artist tag (regular results are skipped).',
     blacklist: 'Blacklist (must exclude)',
     blacklistPlaceholder: 'Type a tag and press Enter, e.g. loli',
     blacklistHint: 'Exclude posts containing any of these tags. Filtered at search time, saving time and bandwidth.',
@@ -258,7 +258,7 @@ export default {
     s6: [
       'Blacklist: posts with any of these tags are excluded. Uses server-side filtering (-prefix) to save bandwidth.',
       'Whitelist: only posts matching these tags are kept. Switch between AND (all must match) and OR (any match) mode.',
-      'Include no-author posts: also downloads posts without any artist tag, alongside whitelist-matched posts.',
+      'Only no-author posts: when enabled, ONLY posts without an artist tag are downloaded (regular results are skipped). Can be combined with whitelist/blacklist.',
     ],
     h7: 'Download deduplication',
     s7: [
