@@ -231,6 +231,79 @@ export default {
     danbooruTestFail: '连接失败: {msg}',
     testConnection: '测试连接',
   },
+  changelog: {
+    title: '更新日志',
+    versions: [
+      {
+        version: 'v1.3.0',
+        date: '2026-06-13',
+        changes: [
+          'curl_cffi + Firefox TLS 指纹突破 Cloudflare',
+          '「只下载无作者帖子」改为排他模式（仅下载无作者标签的帖子）',
+          '下载去重三种模式：不跳过 / 仅当前搜索词 / 全局',
+          'Danbooru 翻页上限 1000 页（不再无限 410 报错）',
+          '移除 .env 依赖，凭据统一通过设置面板配置',
+        ],
+      },
+      {
+        version: 'v1.2.1',
+        date: '2026-06-09',
+        changes: [
+          '修复：白名单为空时「下载无作者帖子」仍被启用的 bug',
+        ],
+      },
+      {
+        version: 'v1.2.0',
+        date: '2026-06-08',
+        changes: [
+          '白名单 AND/OR 模式切换',
+          '自动重试失败的下载',
+          '国际化支持：EN / 简体中文 / 繁體中文 / 日本語',
+          '主题色选择器（6 种可选）',
+          '文件名截断修复 + API 重试增强',
+        ],
+      },
+      {
+        version: 'v1.1.0',
+        date: '2026-05-27',
+        changes: [
+          '暗色主题刷新、毛玻璃面板、响应式优化',
+          'Danbooru General (g) 评级支持',
+          '修复：nonlocal、MAX_PATH、保留文件名等崩溃问题',
+        ],
+      },
+      {
+        version: 'v1.0.0',
+        date: '2026-05-25',
+        changes: [
+          'Yande.re 多评级分次获取 + 并发下载 + 重试修复',
+        ],
+      },
+      {
+        version: 'v0.2.1',
+        date: '2026-05-11',
+        changes: [
+          '设置面板：API 密钥管理、连接测试',
+          '修复：页面滚动、文件名、后端过滤器',
+        ],
+      },
+      {
+        version: 'v0.2.0',
+        date: '2026-05-08',
+        changes: [
+          'Vue 3 + Vite + Element Plus 前端重构',
+          '任务中止按钮',
+        ],
+      },
+      {
+        version: 'v0.1.0',
+        date: '2026-05-07',
+        changes: [
+          '初始版本：Flask 后端 + 基础 Danbooru / Yande.re 爬虫',
+        ],
+      },
+    ],
+  },
   help: {
     title: 'Gazō 使用教程',
     h1: '快速开始',

@@ -4,6 +4,7 @@ import AppHeader from '@/components/AppHeader.vue';
 import Sidebar from '@/components/Sidebar.vue';
 import LogPanel from '@/components/LogPanel.vue';
 import HelpModal from '@/components/HelpModal.vue';
+import ChangelogModal from '@/components/ChangelogModal.vue';
 import SettingsDrawer from '@/components/SettingsDrawer.vue';
 import RecordsList from '@/components/RecordsList.vue';
 import { getConfig, sendHeartbeat } from '@/api';
@@ -14,6 +15,7 @@ import type { Site } from '@/types';
 const currentSite = ref<Site>('danbooru');
 const currentLog = ref<Site>('danbooru');
 const helpOpen = ref(false);
+const changelogOpen = ref(false);
 const settingsOpen = ref(false);
 const recordsOpen = ref(false);
 
@@ -104,6 +106,7 @@ onBeforeUnmount(() => {
     <AppHeader
       @open-help="helpOpen = true"
       @open-records="recordsOpen = true"
+      @open-changelog="changelogOpen = true"
       @open-settings="settingsOpen = true"
     />
     <main class="layout">
@@ -114,6 +117,7 @@ onBeforeUnmount(() => {
       <RecordsList ref="recordsRef" :output-dir="activeDir" />
     </el-drawer>
     <HelpModal v-model="helpOpen" />
+    <ChangelogModal v-model="changelogOpen" />
     <SettingsDrawer v-model="settingsOpen" :current-dir="activeDir" />
   </div>
 </template>

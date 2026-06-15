@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n';
+import { version } from '../../package.json';
 
 const logoUrl = '/logo/logo.png';
 const { t } = useI18n();
@@ -7,6 +8,7 @@ const { t } = useI18n();
 defineEmits<{
   'open-help': [];
   'open-records': [];
+  'open-changelog': [];
   'open-settings': [];
 }>();
 </script>
@@ -26,6 +28,7 @@ defineEmits<{
     <div class="header-actions">
       <button class="pill-btn" @click="$emit('open-help')">{{ t('header.help') }}</button>
       <button class="pill-btn" @click="$emit('open-records')">{{ t('records.title') }}</button>
+      <button class="pill-btn" @click="$emit('open-changelog')">v{{ version }}</button>
       <button class="icon-btn" :title="t('header.settings')" @click="$emit('open-settings')">S</button>
       <span class="badge">{{ t('header.badge') }}</span>
     </div>

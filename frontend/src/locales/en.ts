@@ -231,6 +231,79 @@ export default {
     danbooruTestFail: 'Connection failed: {msg}',
     testConnection: 'Test connection',
   },
+  changelog: {
+    title: 'Changelog',
+    versions: [
+      {
+        version: 'v1.3.0',
+        date: '2026-06-13',
+        changes: [
+          'Cloudflare bypass via curl_cffi + Firefox TLS fingerprint',
+          '"Only no-author posts" changed to exclusive mode — only downloads posts without an artist tag',
+          'Download deduplication: No skip / Current query only / Global',
+          'Danbooru pagination cap at 1000 pages (no more infinite 410 errors)',
+          'Removed .env dependency — credentials now configured via Settings panel',
+        ],
+      },
+      {
+        version: 'v1.2.1',
+        date: '2026-06-09',
+        changes: [
+          'Fix: "Only no-author posts" incorrectly enabled when whitelist was empty',
+        ],
+      },
+      {
+        version: 'v1.2.0',
+        date: '2026-06-08',
+        changes: [
+          'Whitelist AND/OR mode toggle',
+          'Auto-retry failed downloads',
+          'i18n support: EN / 简体中文 / 繁體中文 / 日本語',
+          'Theme color selector (6 options)',
+          'Fix: filename truncation dropping extensions + API retry resilience',
+        ],
+      },
+      {
+        version: 'v1.1.0',
+        date: '2026-05-27',
+        changes: [
+          'Dark theme refresh, glassmorphism panels, responsive polish',
+          'Danbooru General (g) rating support',
+          'Fix: nonlocal, MAX_PATH, reserved filenames, query pollution crashes',
+        ],
+      },
+      {
+        version: 'v1.0.0',
+        date: '2026-05-25',
+        changes: [
+          'Yande.re multi-rating batch fetch + concurrent download + retry fixes',
+        ],
+      },
+      {
+        version: 'v0.2.1',
+        date: '2026-05-11',
+        changes: [
+          'Settings drawer with API key management and connection test',
+          'Fix: page-level scroll, filename bugs, backend filter wiring',
+        ],
+      },
+      {
+        version: 'v0.2.0',
+        date: '2026-05-08',
+        changes: [
+          'Vue 3 + Vite + Element Plus frontend migration',
+          'Stop button for aborting tasks',
+        ],
+      },
+      {
+        version: 'v0.1.0',
+        date: '2026-05-07',
+        changes: [
+          'Initial release: Flask backend + basic Danbooru / Yande.re crawler',
+        ],
+      },
+    ],
+  },
   help: {
     title: 'Gazō — Guide',
     h1: 'Quick start',
